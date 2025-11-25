@@ -1,8 +1,11 @@
 import os
+import logging
 
 from docx import Document
 from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.shared import Inches, Pt
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = "clustered_images"
 OUTPUT_FILE = "공사사진대지.docx"
@@ -49,4 +52,4 @@ for cluster in sorted(os.listdir(BASE_DIR)):
 
 # 저장
 doc.save(OUTPUT_FILE)
-print(f"{OUTPUT_FILE} 생성 완료.")
+logger.info(f"{OUTPUT_FILE} 생성 완료.")
