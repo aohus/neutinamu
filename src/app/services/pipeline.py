@@ -5,10 +5,9 @@ import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
-from typing import Dict, List
+from typing import TYPE_CHECKING, Dict, List
 
 from app.core.config import SessionConfig
-from app.core.logger import get_logger
 from app.models.photometa import PhotoMeta
 from app.services.clusterers.base_clusterer import Clusterer
 from app.services.clusterers.camera_settings_clusterer import CameraSettingsClusterer
@@ -22,22 +21,31 @@ from app.services.metadata_extractor import MetadataExtractor
 from app.services.output_generator import OutputGenerator
 from app.services.runner import ClusterRunner
 
-logger = get_logger(__name__)
+# if TYPE_CHECKING:
+#     from app.services.storage.base import StorageService
+from app.services.storage.base import StorageService
+
+logger = logging.getLogger(__name__)
 
 
 class PhotoClusteringPipeline:
-    def __init__(self, config: SessionConfig):
-        self.config = config
+    def __init__(self, storage: StorageService):
+        self.storage = storage
+        self.config = storage.config
+        logger.debug(f"Initializing pipeline for job_id: {self.config.job_id}")
+
         self.metadata_extractor = MetadataExtractor()
-        self.output_generator = OutputGenerator(config)
+        self.output_generator = OutputGenerator(self.config)
 
         # Initialize clusterers
-        clusterers = self._create_clusterers(config)
+        clusterers = self._create_clusterers(self.config)
         self.clusterer = ClusterRunner(clusterers)
+        logger.debug(f"Pipeline initialized with {len(clusterers)} clusterers.")
 
-    def _create_clusterers(self, config: SessionConfig) -> List[Clusterer]:
+    def _create_clusterers(self, config: "SessionConfig") -> List[Clusterer]:
         """Factory method to create clustering clusterers based on config."""
-        clusterer_map: Dict[str, Clusterer] = {"location": LocationClusterer(config)}
+        logger.debug("Creating clusterers...")
+        clusterer_map: Dict[str, Clusterer] = {"location": LocationClusterer()}
         
         # deep_clusterer = DeepClusterer(
         #     input_path=config.IMAGE_DIR, similarity_threshold=0.13, use_cache=True
@@ -64,6 +72,7 @@ class PhotoClusteringPipeline:
         active_clusterers = []
         for name in config.CLUSTERERS:
             if name in clusterer_map:
+                logger.debug(f"Activating clusterer: {name}")
                 active_clusterers.append(clusterer_map[name])
             else:
                 logger.warning(
@@ -71,27 +80,20 @@ class PhotoClusteringPipeline:
                 )
         return active_clusterers
 
-    def _list_image_paths(self) -> List[str]:
-        image_dir = self.config.IMAGE_DIR
-        if not image_dir.exists():
-            logger.error(f"Image directory does not exist: {image_dir}")
-            return []
-        return [
-            str(image_dir / fname)
-            for fname in os.listdir(image_dir)
-            if fname.lower().endswith(("png", "jpg", "jpeg"))
-        ]
 
     async def run(self):
         start_time = time.time()
+        logger.info(f"Pipeline run started for job {self.config.job_id}.")
 
         self.config.setup_output_dirs(clean=True)
-
-        image_paths = self._list_image_paths()
+        image_paths = self.storage.list_image_paths()
         logger.info(f"Found {len(image_paths)} images.")
 
+        if not image_paths:
+            logger.warning("No images found to process. Aborting pipeline.")
+            return
+
         logger.info("Extracting metadata from images asynchronously...")
-        # Run metadata extraction in parallel
         tasks = [self.metadata_extractor.extract(p) for p in image_paths]
         photos = await asyncio.gather(*tasks)
         logger.info(f"Metadata extracted for {len(photos)} photos.")
@@ -102,6 +104,10 @@ class PhotoClusteringPipeline:
             f"Clustering pipeline finished. Final scene count: {len(final_scenes)}"
         )
 
+        if not final_scenes:
+            logger.warning("No scenes were generated. Skipping output generation.")
+            return
+        return final_scenes
         logger.info("Generating outputs asynchronously...")
         await self.output_generator.save_meta(final_scenes)
 
@@ -110,14 +116,14 @@ class PhotoClusteringPipeline:
             for idx, group in enumerate(final_scenes, start=1)
         ]
         scene_dirs = await asyncio.gather(*output_tasks)
+        logger.info(f"Finished copying {len(scene_dirs)} scenes to output directories.")
 
         await self.output_generator.create_mosaic(final_scenes)
 
-        # Generate and save the cluster visualization
+        # This is a synchronous operation
         self.output_generator.save_cluster_visualization_sync(final_scenes)
 
         end_time = time.time()
-        logger.info(f"Done. Total time: {end_time - start_time:.2f} seconds.")
+        logger.info(f"Pipeline for job {self.config.job_id} finished. Total time: {end_time - start_time:.2f} seconds.")
 
 
-# class ClustererFactory:

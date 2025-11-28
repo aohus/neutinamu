@@ -5,6 +5,7 @@ from typing import Optional
 @dataclass
 class PhotoMeta:
     path: str
+    original_name: str
     lat: Optional[float] = None
     lon: Optional[float] = None
     alt: Optional[float] = None

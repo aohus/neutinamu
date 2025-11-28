@@ -1,7 +1,10 @@
+import logging
 from typing import List
 
 from app.models.photometa import PhotoMeta
 from app.services.clusterers.base_clusterer import Clusterer
+
+logger = logging.getLogger(__name__)
 
 
 class CameraSettingsClusterer(Clusterer):
@@ -12,6 +15,7 @@ class CameraSettingsClusterer(Clusterer):
         if not photos:
             return []
 
+        logger.debug(f"Clustering {len(photos)} photos by camera settings.")
         subgroups: List[List[PhotoMeta]] = []
         for photo in photos:
             assigned = False
@@ -33,5 +37,6 @@ class CameraSettingsClusterer(Clusterer):
 
             if not assigned:
                 subgroups.append([photo])
-                
+        
+        logger.info(f"Split into {len(subgroups)} groups based on camera settings.")
         return subgroups

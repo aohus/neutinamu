@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Tuple
 
 import piexif
-
 from app.models.photometa import PhotoMeta
 
 logger = logging.getLogger(__name__)
@@ -56,6 +55,7 @@ class MetadataExtractor:
 
         return PhotoMeta(
             path=image_path,
+            original_name=image_path.split("/")[-1],
             lat=lat,
             lon=lon,
             alt=alt,

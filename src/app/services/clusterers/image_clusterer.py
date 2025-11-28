@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from concurrent.futures import ProcessPoolExecutor
 from typing import List
 
@@ -6,11 +7,14 @@ from app.models.photometa import PhotoMeta
 from app.services.clusterers.base_clusterer import Clusterer
 from app.services.clusterers.deep_clusterer import DeepClusterer
 
+logger = logging.getLogger(__name__)
+
 
 class ImageClusterer(Clusterer):
     def __init__(self, deep_clusterer: DeepClusterer, executor: ProcessPoolExecutor):
         self.deep_clusterer = deep_clusterer
         self.executor = executor
+        logger.debug("ImageClusterer initialized.")
 
     async def cluster(self, photos: List[PhotoMeta]) -> List[List[PhotoMeta]]:
         """
@@ -20,16 +24,19 @@ class ImageClusterer(Clusterer):
         if len(photos) <= 1:
             return [photos]
 
+        logger.info(f"Starting image clustering for {len(photos)} photos.")
         loop = asyncio.get_running_loop()
         
         photo_paths = [p.path for p in photos]
         
         # Run the CPU/GPU-bound task in a process pool
+        logger.debug("Executing deep_clusterer.cluster in process pool.")
         clustered_paths = await loop.run_in_executor(
             self.executor,
             self.deep_clusterer.cluster,
             photo_paths
         )
+        logger.info(f"Image clustering resulted in {len(clustered_paths)} groups.")
 
         # Create a map for quick lookup
         photo_map = {p.path: p for p in photos}

@@ -34,6 +34,5 @@ class ClusterRunner:
             
             clusters = new_clusters
             logger.info(f"Resulted in {len(clusters)} clusters.")
-            
         return clusters
 

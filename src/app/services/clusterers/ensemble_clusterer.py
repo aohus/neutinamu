@@ -36,6 +36,8 @@ class EnsembleClusterer(Clusterer):
         self.deep_clusterer = deep_clusterer
         self.min_cluster_size = min_cluster_size
         self.min_samples = min_samples
+        logger.debug("EnsembleClusterer initialized.")
+
 
     async def cluster(self, photos: List[PhotoMeta]) -> List[List[PhotoMeta]]:
         """
@@ -64,6 +66,7 @@ class EnsembleClusterer(Clusterer):
 
         # 3. Perform clustering using HDBSCAN
         if hdbscan:
+            logger.debug(f"Using HDBSCAN with min_cluster_size={self.min_cluster_size}, min_samples={self.min_samples}")
             clusterer = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples, metric='euclidean')
             labels = clusterer.fit_predict(ensemble_features)
             logger.info(f"Clustering complete. Found {len(set(labels)) - (1 if -1 in labels else 0)} clusters with HDBSCAN.")
@@ -71,6 +74,7 @@ class EnsembleClusterer(Clusterer):
             # Fallback to DBSCAN if hdbscan is not available
             # Note: DBSCAN is less effective here as eps needs careful tuning.
             # We'll use a placeholder value.
+            logger.debug(f"Using DBSCAN fallback with eps=0.5, min_samples={self.min_cluster_size}")
             clusterer = DBSCAN(eps=0.5, min_samples=self.min_cluster_size, metric="cosine")
             labels = clusterer.fit_predict(ensemble_features)
             logger.info(f"Clustering complete. Found {len(set(labels)) - (1 if -1 in labels else 0)} clusters with DBSCAN (fallback).")
@@ -95,6 +99,7 @@ class EnsembleClusterer(Clusterer):
         """
         Extracts all available features for a list of photos.
         """
+        logger.debug(f"Extracting features for {len(photos)} photos.")
         feature_list = []
         for photo in photos:
             try:
@@ -106,13 +111,15 @@ class EnsembleClusterer(Clusterer):
                 }
                 feature_list.append(features_dict)
             except Exception as e:
-                logger.error(f"Failed to extract features for {photo.path}: {e}")
+                logger.error(f"Failed to extract features for {photo.path}: {e}", exc_info=True)
+        logger.debug(f"Successfully extracted features for {len(feature_list)} photos.")
         return feature_list
 
     def _create_ensemble_vectors(self, features_dict_list: List[Dict[str, np.ndarray]]) -> np.ndarray:
         """
         Creates normalized and concatenated feature vectors from a list of feature dictionaries.
         """
+        logger.debug(f"Creating ensemble vectors from {len(features_dict_list)} feature sets.")
         ensembled_vectors = []
         for features_dict in features_dict_list:
             # Define which features to use in the ensemble

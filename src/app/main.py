@@ -1,3 +1,4 @@
+import logging
 import sys
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -14,24 +15,28 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+setup_logging()
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Lifespan context manager for startup and shutdown events.
     """
+    logger.info("Starting application lifespan...")
     # Startup: Initialize executors and store them in the app state
     app.state.thread_executor = ThreadPoolExecutor()
     app.state.process_executor = ProcessPoolExecutor()
     settings.DATA_DIR.mkdir(exist_ok=True)
-    setup_logging()
-    print("Executors initialized and data directory ensured.")
+    logger.info("Executors initialized and data directory ensured.")
     yield
 
     # Shutdown: Stop the executors
+    logger.info("Shutting down application lifespan...")
     app.state.thread_executor.shutdown(wait=False)
     app.state.process_executor.shutdown(wait=False)
-    print("Executors shut down.")
+    logger.info("Executors shut down.")
 
 
 app = FastAPI(

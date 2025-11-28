@@ -3,6 +3,8 @@ import math
 from collections import Counter
 from typing import List, Optional
 
+from app.models.photometa import PhotoMeta
+from app.services.clusterers.base_clusterer import Clusterer
 from pyproj import Geod
 
 try:
@@ -14,20 +16,14 @@ import numpy as np
 from scipy import stats
 from sklearn.cluster import DBSCAN
 
-from app.core.config import SessionConfig
-from app.models.photometa import PhotoMeta
-from app.services.clusterers.base_clusterer import Clusterer
-
 logger = logging.getLogger(__name__)
 
-
 class LocationClusterer(Clusterer):
-    def __init__(self, config: SessionConfig):
-        self.config = config
+    def __init__(self):
         self.executer = DbscanExecuter()
-        self.max_dist_m = self.config.MAX_LOCATION_DIST_M
-        self.max_alt_diff_m = self.config.MAX_LOCATION_DIST_M
-        self.min_samples = self.config.MIN_SAMPLES
+        self.max_dist_m = 15
+        self.max_alt_diff_m = 15
+        self.min_samples = 2
 
     async def cluster(self, photos: List[PhotoMeta]) -> List[List[PhotoMeta]]:
         return await self.cluster_loop(photos, is_main=True)

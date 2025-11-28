@@ -12,6 +12,11 @@ logger = logging.getLogger(__name__)
 class GlobalSettings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "Photo Clustering Service"
+    
+    # Logging configuration
+    ENVIRONMENT: str = "development"
+    LOG_LEVEL: str = "INFO"
+
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@postgres:5432/report_db"
     FRONTEND_URL: str = "http://localhost:3000"
     
