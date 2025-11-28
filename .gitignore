@@ -181,7 +181,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# local assets
 .assets/
 assets/
 .experiment
+logs/
 .DS_Store
