@@ -8,7 +8,7 @@ from pathlib import Path
 
 from app.core.config import LocalConfig
 from app.core.logger import setup_logging
-from app.services.pipeline import PhotoClusteringPipeline
+from app.domain.pipeline import PhotoClusteringPipeline
 
 # Ensure project root is on PYTHONPATH
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

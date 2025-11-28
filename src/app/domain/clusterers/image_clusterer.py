@@ -3,9 +3,9 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 from typing import List
 
+from app.domain.clusterers.base_clusterer import Clusterer
+from app.domain.clusterers.deep_clusterer import DeepClusterer
 from app.models.photometa import PhotoMeta
-from app.services.clusterers.base_clusterer import Clusterer
-from app.services.clusterers.deep_clusterer import DeepClusterer
 
 logger = logging.getLogger(__name__)
 

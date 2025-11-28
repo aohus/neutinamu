@@ -1,18 +1,18 @@
-import numpy as np
-from typing import List, Dict
 import logging
+from typing import Dict, List
+
+import numpy as np
 
 try:
     import hdbscan
 except ImportError:
     hdbscan = None
     print("hdbscan not found, falling back to DBSCAN. For better results, please install it: pip install hdbscan")
+from app.domain.clusterers.base_clusterer import Clusterer
+from app.domain.clusterers.deep_clusterer import DeepClusterer
+from app.models.photometa import PhotoMeta
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import normalize
-
-from app.models.photometa import PhotoMeta
-from app.services.clusterers.base_clusterer import Clusterer
-from app.services.clusterers.deep_clusterer import DeepClusterer
 
 logger = logging.getLogger(__name__)
 

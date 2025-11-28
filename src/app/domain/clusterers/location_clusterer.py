@@ -3,8 +3,8 @@ import math
 from collections import Counter
 from typing import List, Optional
 
+from app.domain.clusterers.base_clusterer import Clusterer
 from app.models.photometa import PhotoMeta
-from app.services.clusterers.base_clusterer import Clusterer
 from pyproj import Geod
 
 try:

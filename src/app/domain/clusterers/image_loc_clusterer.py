@@ -4,13 +4,12 @@ from concurrent.futures import ProcessPoolExecutor
 from typing import List
 
 import numpy as np
+from app.domain.clusterers.base_clusterer import Clusterer
+from app.domain.clusterers.deep_clusterer import DeepClusterer
+from app.models.photometa import PhotoMeta
 from sklearn.cluster import DBSCAN
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize
-
-from app.models.photometa import PhotoMeta
-from app.services.clusterers.base_clusterer import Clusterer
-from app.services.clusterers.deep_clusterer import DeepClusterer
 
 
 class ImageLocClusterer(Clusterer):
