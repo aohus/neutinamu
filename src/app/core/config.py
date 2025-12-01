@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 class GlobalSettings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "Photo Clustering Service"
-    
+    CLUSTER_SERVICE_URL: str = "http://host.docker.internal:8001"
+
     # Logging configuration
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
@@ -66,6 +67,8 @@ class JobConfig:
                  max_dist_m: float = 10.0, 
                  max_alt_diff_m: float = 20.0
                  ):
+        self.CLUSTER_SERVICE_URL: str = settings.CLUSTER_SERVICE_URL
+        
         self.job_id = job_id
         self.base_dir = self.MEDIA_ROOT / job_id
         self.IMAGE_DIR = self.base_dir / "set"

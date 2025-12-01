@@ -11,7 +11,7 @@ class Photo(Base):
     __tablename__ = "photos"
     
     id = Column(String, primary_key=True, default=lambda: generate_short_id("pho"))
-    job_id = Column(String, ForeignKey("jobs.id"), nullable=False)
+    job_id = Column(String, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     cluster_id = Column(String, ForeignKey("clusters.id"), nullable=True)
     
     original_filename = Column(String, nullable=False)

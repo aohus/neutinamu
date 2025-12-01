@@ -11,7 +11,7 @@ class Cluster(Base):
     __tablename__ = "clusters"
     
     id = Column(String, primary_key=True, default=lambda: generate_short_id("cls"))
-    job_id = Column(String, ForeignKey("jobs.id"), nullable=False)
+    job_id = Column(String, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     order_index = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

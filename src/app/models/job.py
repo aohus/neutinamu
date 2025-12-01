@@ -50,8 +50,8 @@ class Job(Base):
 class ClusterJob(Base):
     __tablename__ = "cluster_jobs"
 
-    id = Column(String, primary_key=True, index=True, default=lambda: generate_short_id("job"))
-    job_id = Column(String, ForeignKey("jobs.id"))
+    id = Column(String, primary_key=True, index=True, default=lambda: generate_short_id("clsJob"))
+    job_id = Column(String, ForeignKey("jobs.id", ondelete="CASCADE"))
     status = Column(SqlEnum(Status), default=Status.PENDING)
     created_at = Column(DateTime, default=datetime.now)
     finished_at = Column(DateTime, nullable=True)
@@ -65,8 +65,8 @@ class ClusterJob(Base):
 class ExportJob(Base):
     __tablename__ = "export_jobs"
 
-    id = Column(String, primary_key=True, index=True, default=lambda: generate_short_id("job"))
-    job_id = Column(String, ForeignKey("jobs.id"))
+    id = Column(String, primary_key=True, index=True, default=lambda: generate_short_id("expJob"))
+    job_id = Column(String, ForeignKey("jobs.id", ondelete="CASCADE"))
     status = Column(SqlEnum(Status), default=Status.PENDING)
     created_at = Column(DateTime, default=datetime.now)
     finished_at = Column(DateTime, nullable=True)
