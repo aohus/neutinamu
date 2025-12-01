@@ -9,9 +9,11 @@ from app.core.config import settings
 from app.core.logger import setup_logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 # Ensure project root is on PYTHONPATH
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MEDIA_ROOT = PROJECT_ROOT / "assets"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -56,6 +58,12 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api")
+
+app.mount(
+    "/api/uploads",              
+    StaticFiles(directory=MEDIA_ROOT),
+    name="uploads",
+)
 
 @app.get("/", tags=["Root"])
 async def read_root():

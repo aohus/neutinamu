@@ -18,7 +18,8 @@ from sklearn.cluster import DBSCAN
 
 logger = logging.getLogger(__name__)
 
-class LocationClusterer(Clusterer):
+
+class GPSCluster(Clusterer):
     def __init__(self):
         self.executer = DbscanExecuter()
         self.max_dist_m = 15

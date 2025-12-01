@@ -1,7 +1,7 @@
 import logging
 from typing import List
 
-from app.core.config import SessionConfig
+from app.core.config import JobConfig
 from app.domain.clusterers.base_clusterer import Clusterer
 from app.models.photometa import PhotoMeta
 
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class TimeSplitClusterer(Clusterer):
-    def __init__(self, config: SessionConfig):
+    def __init__(self, config: JobConfig):
         self.config = config
         logger.debug(f"TimeSplitClusterer initialized with MAX_TIME_GAP_SEC: {config.MAX_TIME_GAP_SEC}")
 

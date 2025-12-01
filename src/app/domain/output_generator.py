@@ -12,7 +12,7 @@ from typing import List
 import aiofiles
 import aiofiles.os
 import aioshutil
-from app.core.config import SessionConfig
+from app.core.config import JobConfig
 from app.models.photometa import PhotoMeta
 from PIL import Image, ImageOps
 
@@ -35,7 +35,7 @@ import aiofiles
 import aiofiles.os
 import aioshutil
 import matplotlib.pyplot as plt
-from app.core.config import SessionConfig
+from app.core.config import JobConfig
 from app.models.photometa import PhotoMeta
 from PIL import Image, ImageOps
 
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 class OutputGenerator:
-    def __init__(self, config: SessionConfig):
+    def __init__(self, config: JobConfig):
         self.config = config
         self.output_root = Path(self.config.IMG_OUTPUT_DIR)
         self.report_root = Path(self.config.REPORT_DIR)

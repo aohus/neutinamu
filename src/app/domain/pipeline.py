@@ -7,14 +7,16 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List
 
-from app.core.config import SessionConfig
+from app.core.config import JobConfig
 from app.domain.clusterers.base_clusterer import Clusterer
 from app.domain.clusterers.camera_settings_clusterer import CameraSettingsClusterer
-from app.domain.clusterers.deep_clusterer import DeepClusterer
 from app.domain.clusterers.ensemble_clusterer import EnsembleClusterer
+from app.domain.clusterers.gps_clusterer import GPSCluster
 from app.domain.clusterers.image_clusterer import ImageClusterer
 from app.domain.clusterers.image_loc_clusterer import ImageLocClusterer
-from app.domain.clusterers.location_clusterer import LocationClusterer
+
+# from app.domain.clusterers.deep_clusterer import DeepClusterer
+from app.domain.clusterers.knn_clusterer import DeepClusterer
 from app.domain.clusterers.time_clusterer import TimeSplitClusterer
 from app.domain.metadata_extractor import MetadataExtractor
 from app.domain.output_generator import OutputGenerator
@@ -42,32 +44,33 @@ class PhotoClusteringPipeline:
         self.clusterer = ClusterRunner(clusterers)
         logger.debug(f"Pipeline initialized with {len(clusterers)} clusterers.")
 
-    def _create_clusterers(self, config: "SessionConfig") -> List[Clusterer]:
+    def _create_clusterers(self, config: "JobConfig") -> List[Clusterer]:
         """Factory method to create clustering clusterers based on config."""
         logger.debug("Creating clusterers...")
-        clusterer_map: Dict[str, Clusterer] = {"location": LocationClusterer()}
+        # clusterer_map: Dict[str, Clusterer] = {"location": LocationClusterer()}
         
-        # deep_clusterer = DeepClusterer(
-        #     input_path=config.IMAGE_DIR, similarity_threshold=0.13, use_cache=True
-        # )
+        deep_clusterer = DeepClusterer(
+            input_path=config.IMAGE_DIR, similarity_threshold=0.2, use_cache=True
+        )
 
-        # clusterer_map: Dict[str, Clusterer] = {
-        #     "location": LocationClusterer(config),
-        #     "time": TimeSplitClusterer(config),
-        #     "camera_settings": CameraSettingsClusterer(),
-        #     "image": ImageClusterer(
-        #         deep_clusterer=deep_clusterer, executor=process_executor
-        #     ),
-        #     "image_loc": ImageLocClusterer(
-        #         deep_clusterer=deep_clusterer,
-        #         executor=process_executor,
-        #         location_weight=0.5,
-        #         direction_weight=0.2,
-        #     ),
-        #     "ensemble": EnsembleClusterer(
-        #         deep_clusterer=deep_clusterer,
-        #     ),
-        # }
+        clusterer_map: Dict[str, Clusterer] = {
+            "gps": GPSCluster(),
+            # "time": TimeSplitClusterer(),
+            # "camera_settings": CameraSettingsClusterer(),
+            "image": ImageClusterer(
+                deep_clusterer=deep_clusterer, 
+                # executor=process_executor
+            ),
+            # "image_loc": ImageLocClusterer(
+            #     deep_clusterer=deep_clusterer,
+            #     executor=process_executor,
+            #     location_weight=0.5,
+            #     direction_weight=0.2,
+            # ),
+            "ensemble": EnsembleClusterer(
+                deep_clusterer=deep_clusterer,
+            ),
+        }
 
         active_clusterers = []
         for name in config.CLUSTERERS:
@@ -108,6 +111,7 @@ class PhotoClusteringPipeline:
             logger.warning("No scenes were generated. Skipping output generation.")
             return
         return final_scenes
+    
         logger.info("Generating outputs asynchronously...")
         await self.output_generator.save_meta(final_scenes)
 

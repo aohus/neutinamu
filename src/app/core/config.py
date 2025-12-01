@@ -25,7 +25,7 @@ class GlobalSettings(BaseSettings):
     ALLOWED_ORIGINS: str = "http://localhost:5432,http://localhost:3000"
     
     # Default clustering strategies
-    CLUSTERERS: List[str] = ["location"]
+    CLUSTERERS: List[str] = ["gps"]
     # Clustering thresholds
     MIN_SAMPLES: int = 3
     MAX_LOCATION_DIST_M: float = 10.0
@@ -55,25 +55,36 @@ settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # This class will be instantiated per-request, holding session-specific paths.
-class SessionConfig:
-    def __init__(self, job_id: str):
+
+class JobConfig:
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+    MEDIA_ROOT = settings.DATA_DIR
+
+    def __init__(self,    
+                 job_id: str,
+                 min_samples: int = 3, 
+                 max_dist_m: float = 10.0, 
+                 max_alt_diff_m: float = 20.0
+                 ):
         self.job_id = job_id
-        self.base_dir = settings.DATA_DIR / job_id
-        self.IMAGE_DIR = self.base_dir / "work"
+        self.base_dir = self.MEDIA_ROOT / job_id
+        self.IMAGE_DIR = self.base_dir / "set"
         self.META_OUTPUT_DIR = self.base_dir / "meta"
         self.IMG_OUTPUT_DIR = self.base_dir / "clustered"
         self.REPORT_DIR = self.base_dir / "report"
+        
+        self.CLUSTERERS = ["gps", "image"]
+        # Clustering thresholds
+        self.MIN_SAMPLES: int = min_samples or settings.MIN_SAMPLES
+        self.MAX_LOCATION_DIST_M: float = max_dist_m or settings.MAX_LOCATION_DIST_M
+        self.MAX_ALT_DIFF_M: float = max_alt_diff_m or settings.MAX_ALT_DIFF_M
+        self.MAX_TIME_GAP_SEC: int = 240
+        self.FOCAL_TOLERANCE_35MM: float = 10.0
+        self.DIRECTION_TOL_DEG: float = 20.0
 
-        # Copy global settings
-        self.MIN_SAMPLES: int = settings.MIN_SAMPLES
-        self.CLUSTERERS = settings.CLUSTERERS
-        self.MAX_LOCATION_DIST_M = settings.MAX_LOCATION_DIST_M
-        self.MAX_ALT_DIFF_M = settings.MAX_ALT_DIFF_M
-        self.MAX_TIME_GAP_SEC = settings.MAX_TIME_GAP_SEC
-        self.FOCAL_TOLERANCE_35MM = settings.FOCAL_TOLERANCE_35MM
-        self.DIRECTION_TOL_DEG = settings.DIRECTION_TOL_DEG
-        self.THUMB_SIZE = settings.THUMB_SIZE
-        self.MONTAGE_COLS = settings.MONTAGE_COLS
+        # Output settings
+        self.THUMB_SIZE: tuple[int, int] = (256, 256)
+        self.MONTAGE_COLS: int = 10
 
     def setup_output_dirs(self, clean: bool = False):
         """
@@ -97,22 +108,27 @@ class SessionConfig:
         logger.info(f"Created directory: {dir_path}")
 
 
-class LocalConfig(SessionConfig):
+class LocalConfig(JobConfig):
     PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-    def __init__(self, job_id: str):
+    def __init__(self,    
+                 job_id: str,
+                 min_samples: int = 3, 
+                 max_dist_m: float = 10.0, 
+                 max_alt_diff_m: float = 20.0
+                 ):
         self.job_id = job_id
-        self.base_dir = self.PROJECT_ROOT / f"assets/{job_id}"
+        self.base_dir = self.PROJECT_ROOT / job_id
         self.IMAGE_DIR = self.base_dir / "set"
         self.META_OUTPUT_DIR = self.base_dir / "meta"
         self.IMG_OUTPUT_DIR = self.base_dir / "clustered"
         self.REPORT_DIR = self.base_dir / "report"
         
-        self.CLUSTERERS = ["location"]
+        self.CLUSTERERS = ["gps", "image"]
         # Clustering thresholds
-        self.MIN_SAMPLES: int = 3
-        self.MAX_LOCATION_DIST_M: float = 10
-        self.MAX_ALT_DIFF_M: float = 20.0
+        self.MIN_SAMPLES: int = min_samples or settings.MIN_SAMPLES
+        self.MAX_LOCATION_DIST_M: float = max_dist_m or settings.MAX_LOCATION_DIST_M
+        self.MAX_ALT_DIFF_M: float = max_alt_diff_m or settings.MAX_ALT_DIFF_M
         self.MAX_TIME_GAP_SEC: int = 240
         self.FOCAL_TOLERANCE_35MM: float = 10.0
         self.DIRECTION_TOL_DEG: float = 20.0

@@ -2,6 +2,7 @@ import logging
 
 from app.db.database import get_db
 from app.schemas.photo import PhotoMove, PhotoResponse
+from app.services.cluster import ClusterService
 from app.services.photo import PhotoService
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,27 +20,37 @@ async def list_photos(
     photos = await service.list_photos(job_id=job_id)
     return [PhotoResponse(id=photo.id, 
                           job_id=photo.job_id, 
+                          order_index=photo.order_index,
                           cluster_id=photo.cluster_id, 
                           storage_path=photo.storage_path, 
                           original_filename=photo.original_filename
                           ) for photo in photos]
 
-
-@router.post("/clusters/{cluster_id}/move-photo", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/photos/{photo_id}/move", status_code=status.HTTP_204_NO_CONTENT)
 async def move_photo(
-    cluster_id: str,
+    photo_id: str,
     payload: PhotoMove,
     db: AsyncSession = Depends(get_db)
 ):
     service = PhotoService(db)
-    await service.move_photo(cluster_id=cluster_id, payload=payload)
+    cluster_service = ClusterService(db)
+    await service.move_photo(photo_id=photo_id, payload=payload, cluster_service=cluster_service)
+
+# @router.post("/clusters/{cluster_id}/move-photo", status_code=status.HTTP_204_NO_CONTENT)
+# async def move_photo(
+#     cluster_id: str,
+#     payload: PhotoMove,
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     service = PhotoService(db)
+#     await service.move_photo(cluster_id=cluster_id, payload=payload)
 
 
-@router.delete("/clusters/{cluster_id}/photos/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/photos/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_photo(
-    cluster_id: str,
     photo_id: str,
     db: AsyncSession = Depends(get_db)
 ):
     service = PhotoService(db)
-    await service.delete_photo(cluster_id=cluster_id, photo_id=photo_id)
+    await service.delete_photo(photo_id=photo_id)
+

@@ -1,15 +1,18 @@
 from datetime import datetime
 from typing import Optional
 
+from app.models.job import Status
 from pydantic import BaseModel
-
-
-class JobCreate(BaseModel):
-    pass
 
 
 class JobRequest(BaseModel):
     title: str
+
+
+class JobClusterRequest(BaseModel):
+    min_samples: Optional[int] = 3
+    max_dist_m: Optional[float] = 10.0
+    max_alt_diff_m: Optional[float] = 20.0
 
 
 class JobResponse(BaseModel):
@@ -32,3 +35,9 @@ class JobStatusResponse(BaseModel):
     job_id: str
     status: str
     message: str
+
+
+class ExportStatusOut(BaseModel):
+    status: Status
+    pdf_url: Optional[str] = None
+    error_message: Optional[str] = None

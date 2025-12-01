@@ -17,8 +17,7 @@ class Photo(Base):
     original_filename = Column(String, nullable=False)
     storage_path = Column(String, nullable=False)
     thumbnail_path = Column(String, nullable=True)
-    order_index = Column(Integer, default=0)
-    is_deleted = Column(Boolean, default=False)
+    order_index = Column(Integer, nullable=True)
     
     # Metadata
     meta_lat = Column(Float, nullable=True)
@@ -26,6 +25,7 @@ class Photo(Base):
     meta_timestamp = Column(DateTime, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
     
     job = relationship("Job", back_populates="photos")
     cluster = relationship("Cluster", back_populates="photos")

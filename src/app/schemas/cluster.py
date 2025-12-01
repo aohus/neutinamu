@@ -1,22 +1,25 @@
 from typing import List, Optional
 
-from pydantic import BaseModel
-
 from app.schemas.photo import PhotoResponse
-
+from pydantic import BaseModel
 
 
 class ClusterBase(BaseModel):
     name: Optional[str] = None
     order_index: Optional[int] = 0
 
-class ClusterCreate(ClusterBase):
-    name: str
 
-class ClusterUpdate(ClusterBase):
-    pass
+class ClusterCreateRequest(ClusterBase):
+    name: Optional[str] = None
+    order_index: Optional[int] = 0
+    photo_ids: Optional[list] = []
 
-class ClusterDetail(ClusterBase):
+
+class ClusterUpdateRequest(ClusterBase):
+    new_name: Optional[str] = None
+
+
+class ClusterResponse(ClusterBase):
     id: str
     job_id: str
     name: str
@@ -25,6 +28,3 @@ class ClusterDetail(ClusterBase):
 
     class Config:
         from_attributes = True
-
-class ClusterRename(BaseModel):
-    new_name: str

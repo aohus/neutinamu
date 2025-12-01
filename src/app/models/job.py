@@ -1,12 +1,30 @@
 import uuid
 from datetime import datetime
+from enum import Enum
 
 from app.db.database import Base
 from app.models.utils import generate_short_id
-from sqlalchemy import Column, DateTime, ForeignKey, String
+from sqlalchemy import Column, DateTime
+from sqlalchemy import Enum as SqlEnum
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+
+
+class ClusterStatus(str, Enum):
+    UPLOADING = "UPLOADING"
+    CREATED = "CREATED"
+    RUN_CLUSTERING = "RUN_CLUSTERING"
+    EXPORTED = "EXPORTED"
+
+
+class Status(str, Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    DONE = "DONE"
+    FAILED = "FAILED"
+    EXPORTED = "EXPORTED"
 
 
 class Job(Base):
@@ -22,6 +40,40 @@ class Job(Base):
     user = relationship("User", back_populates="jobs")
     clusters = relationship("Cluster", back_populates="job", cascade="all, delete-orphan")
     photos = relationship("Photo", back_populates="job", cascade="all, delete-orphan")
+    cluster_job = relationship("ClusterJob", back_populates="job", cascade="all, delete-orphan")
+    export_job = relationship("ExportJob", back_populates="job", cascade="all, delete-orphan")
     
     def __repr__(self) -> str:
         return f"<Job(id={self.id}, title={self.title})>"
+
+
+class ClusterJob(Base):
+    __tablename__ = "cluster_jobs"
+
+    id = Column(String, primary_key=True, index=True, default=lambda: generate_short_id("job"))
+    job_id = Column(String, ForeignKey("jobs.id"))
+    status = Column(SqlEnum(Status), default=Status.PENDING)
+    created_at = Column(DateTime, default=datetime.now)
+    finished_at = Column(DateTime, nullable=True)
+
+    job = relationship("Job", back_populates="cluster_job")
+    
+    def __repr__(self) -> str:
+        return f"<ClusterJob(id={self.id}, title={self.job.title}), status={self.status}>"
+
+
+class ExportJob(Base):
+    __tablename__ = "export_jobs"
+
+    id = Column(String, primary_key=True, index=True, default=lambda: generate_short_id("job"))
+    job_id = Column(String, ForeignKey("jobs.id"))
+    status = Column(SqlEnum(Status), default=Status.PENDING)
+    created_at = Column(DateTime, default=datetime.now)
+    finished_at = Column(DateTime, nullable=True)
+    pdf_path = Column(String, nullable=True)
+    error_message = Column(String, nullable=True)
+
+    job = relationship("Job", back_populates="export_job")
+    
+    def __repr__(self) -> str:
+        return f"<ExportJob(id={self.id}, title={self.job.title}), status={self.status}>"

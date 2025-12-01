@@ -2,7 +2,11 @@ import logging
 from typing import List
 
 from app.db.database import get_db
-from app.schemas.cluster import ClusterCreate, ClusterDetail, ClusterRename
+from app.schemas.cluster import (
+    ClusterCreateRequest,
+    ClusterResponse,
+    ClusterUpdateRequest,
+)
 from app.schemas.photo import PhotoResponse
 from app.services.cluster import ClusterService
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -12,7 +16,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("/jobs/{job_id}/clusters", response_model=List[ClusterDetail])
+@router.get("/jobs/{job_id}/clusters", response_model=list[ClusterResponse])
 async def list_clusters(
     job_id: str,
     db: AsyncSession = Depends(get_db)
@@ -20,13 +24,14 @@ async def list_clusters(
     service = ClusterService(db)
     clusters = await service.list_clusters(job_id=job_id)
     return [
-        ClusterDetail(
+        ClusterResponse(
             id=cluster.id,
             job_id=cluster.job_id,
             name=cluster.name,
             order_index=cluster.order_index,
             photos=[PhotoResponse(id=photo.id, 
                                   job_id=photo.job_id, 
+                                  order_index=photo.order_index, 
                                   cluster_id=photo.cluster_id, 
                                   storage_path=photo.storage_path, 
                                   original_filename=photo.original_filename
@@ -34,49 +39,52 @@ async def list_clusters(
         ) for cluster in clusters
     ]
 
-@router.post("/jobs/{job_id}/clusters", response_model=ClusterDetail, status_code=status.HTTP_201_CREATED)
+@router.post("/jobs/{job_id}/clusters", response_model=ClusterResponse, status_code=status.HTTP_201_CREATED)
 async def create_cluster(
     job_id: str,
-    payload: ClusterCreate,
+    payload: ClusterCreateRequest,
     db: AsyncSession = Depends(get_db)
 ):
     service = ClusterService(db)
-    name = payload.name if payload.name else None
     order_index = payload.order_index if payload.order_index else 0
-    cluster = await service.create_cluster(job_id=job_id, name=name, order_index=order_index)
-    return ClusterDetail(
-        job_id=cluster.job_id,
-        order_index=cluster.order_index,
-        photos=[])
-
-# @router.patch("/jobs/{job_id}/clusters/{cluster_id}", response_model=ClusterDetail)
-# async def update_cluster(
-#     job_id: str,
-#     cluster_id: str,
-#     payload: ClusterRename,
-#     db: AsyncSession = Depends(get_db)
-# ):
-#     service = ClusterService(db)
-#     new_name = payload.new_name if payload.new_name else None
-#     order_index = payload.order_index if payload.order_index else 0
-#     cluster = await service.create_cluster(job_id=job_id, cluster_id=cluster_id, new_name=new_name, order_index=order_index)
-#     return ClusterDetail(
-#         job_id=cluster.job_id,
-#         order_index=cluster.order_index,
-#         photos=[])
+    name = payload.name if payload.name else None
+    photo_ids = payload.photo_ids if payload.photo_ids else []
+    cluster = await service.create_cluster(job_id=job_id, order_index=order_index, name=name, photo_ids=photo_ids)
+    return ClusterResponse(
+            id=cluster.id,
+            job_id=cluster.job_id,
+            name=cluster.name,
+            order_index=cluster.order_index,
+            photos=[])
 
 
-@router.patch("/clusters/{cluster_id}", response_model=ClusterDetail)
+@router.patch("/clusters/{cluster_id}", response_model=ClusterResponse)
 async def update_cluster(
     cluster_id: str,
-    payload: ClusterRename,
+    payload: ClusterUpdateRequest,
     db: AsyncSession = Depends(get_db)
 ):
     service = ClusterService(db)
     new_name = payload.new_name if payload.new_name else None
     order_index = payload.order_index if payload.order_index else 0
-    cluster = await service.create_cluster(job_id="", cluster_id=cluster_id, new_name=new_name, order_index=order_index)
-    return ClusterDetail(
+    cluster = await service.update_cluster(job_id="", cluster_id=cluster_id, new_name=new_name, order_index=order_index)
+    return ClusterResponse(
+        id=cluster.id,
         job_id=cluster.job_id,
+        name=cluster.name,
         order_index=cluster.order_index,
-        photos=[])
+        photos=[PhotoResponse(id=photo.id, 
+                              job_id=photo.job_id, 
+                              order_index=photo.order_index, 
+                              cluster_id=photo.cluster_id, 
+                              storage_path=photo.storage_path, 
+                              original_filename=photo.original_filename
+                              ) for photo in cluster.photos])
+
+@router.delete("/clusters/{cluster_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_cluster(
+    cluster_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    service = ClusterService(db)
+    await service.delete_cluster(job_id="", cluster_id=cluster_id)
