@@ -3,14 +3,13 @@ from logging.config import fileConfig
 
 from alembic import context
 from app.core.config import settings
-from app.db.database import Base
 
 # Import all models to ensure they are attached to Base.metadata
 from app.db.database import Base
-from app.models.user import User
-from app.models.job import Job
 from app.models.cluster import Cluster
+from app.models.job import Job
 from app.models.photo import Photo
+from app.models.user import User
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
@@ -53,6 +52,9 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
+# def create_database_sync(engine):
+#     if not database_exists(engine.url):
+#         create_database(engine.url)
 
 def do_run_migrations(connection: Connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata)
@@ -78,7 +80,6 @@ async def run_migrations_online() -> None:
         await connection.run_sync(do_run_migrations)
 
     await connectable.dispose()
-
 
 if context.is_offline_mode():
     run_migrations_offline()

@@ -1,3 +1,5 @@
+import glob
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -5,7 +7,7 @@ from app.db.database import AsyncSessionLocal
 from app.models.cluster import Cluster
 from app.models.job import ExportJob
 from app.models.photo import Photo
-from app.schemas.job import Status  # 상태 Enum 이라고 가정
+from app.schemas.job import ExportStatus  # 상태 Enum 이라고 가정
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -14,6 +16,9 @@ from sqlalchemy import select
 
 # --------- 폰트 등록 ---------
 font_dir = Path("/app/fonts")
+
+logger = logging.getLogger(__name__)
+
 pdfmetrics.registerFont(
     TTFont("NanumGothic", str(font_dir / "AppleGothic.ttf"))
 )
@@ -53,12 +58,12 @@ async def generate_pdf_for_session(export_job_id: str):
             if not export_job:
                 return
 
-            export_job.status = Status.RUNNING
+            export_job.status = ExportStatus.PROCESSING
             await session.commit()
 
             job_id = export_job.job_id
             if not job_id:
-                export_job.status = Status.FAILED
+                export_job.status = ExportStatus.FAILED
                 export_job.error_message = "Job not found"
                 await session.commit()
                 return
@@ -250,7 +255,7 @@ async def generate_pdf_for_session(export_job_id: str):
 
             c.save()
 
-            export_job.status = Status.EXPORTED
+            export_job.status = ExportStatus.EXPORTED
             export_job.pdf_path = str(pdf_path)
             export_job.finished_at = datetime.now()
             await session.commit()
@@ -264,7 +269,7 @@ async def generate_pdf_for_session(export_job_id: str):
                 export_job = result.scalars().first()
 
             if export_job:
-                export_job.status = Status.FAILED
+                export_job.status = ExportStatus.FAILED
                 export_job.error_message = str(e)
                 export_job.finished_at = datetime.now()
                 await session.commit()

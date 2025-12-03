@@ -7,6 +7,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 
+# TODO: 정확도, 변화 등 기록
 class Cluster(Base):
     __tablename__ = "clusters"
     

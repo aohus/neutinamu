@@ -1,4 +1,5 @@
 import logging
+
 from app.core.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
@@ -13,6 +14,7 @@ engine = create_async_engine(
     echo=is_debug,
     future=True
 )
+
 
 # Create async session factory
 AsyncSessionLocal = async_sessionmaker(

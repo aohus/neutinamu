@@ -1,10 +1,6 @@
 import asyncio
 import logging
-import os
-import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List
 
 from app.core.config import JobConfig
@@ -25,7 +21,6 @@ from app.domain.runner import ClusterRunner
 # if TYPE_CHECKING:
 #     from app.domain.storage.base import StorageService
 from app.domain.storage.base import StorageService
-from app.models.photometa import PhotoMeta
 
 logger = logging.getLogger(__name__)
 
@@ -49,27 +44,27 @@ class PhotoClusteringPipeline:
         logger.debug("Creating clusterers...")
         # clusterer_map: Dict[str, Clusterer] = {"location": LocationClusterer()}
         
-        deep_clusterer = DeepClusterer(
-            input_path=config.IMAGE_DIR, similarity_threshold=0.2, use_cache=True
-        )
+        # deep_clusterer = DeepClusterer(
+        #     input_path=config.IMAGE_DIR, similarity_threshold=0.2, use_cache=True
+        # )
 
         clusterer_map: Dict[str, Clusterer] = {
             "gps": GPSCluster(),
             # "time": TimeSplitClusterer(),
             # "camera_settings": CameraSettingsClusterer(),
-            "image": ImageClusterer(
-                deep_clusterer=deep_clusterer, 
+            # "image": ImageClusterer(
+            #     deep_clusterer=deep_clusterer, 
                 # executor=process_executor
-            ),
+            # ),
             # "image_loc": ImageLocClusterer(
             #     deep_clusterer=deep_clusterer,
             #     executor=process_executor,
             #     location_weight=0.5,
             #     direction_weight=0.2,
             # ),
-            "ensemble": EnsembleClusterer(
-                deep_clusterer=deep_clusterer,
-            ),
+            # "ensemble": EnsembleClusterer(
+            #     deep_clusterer=deep_clusterer,
+            # ),
         }
 
         active_clusterers = []

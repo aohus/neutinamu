@@ -8,7 +8,7 @@ from app.db.database import AsyncSessionLocal
 from app.domain.pipeline import PhotoClusteringPipeline
 from app.domain.storage.local import LocalStorageService as StorageService
 from app.models.cluster import Cluster
-from app.models.job import ExportJob, Job, Status
+from app.models.job import Job, JobStatus
 from app.models.photo import Photo
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -37,10 +37,10 @@ async def run_pipeline_task(
 
     async with AsyncSessionLocal() as session:
         try:
-            await _mark_job_status(session, job_id, "PROCESSING")
+            await _mark_job_status(session, job_id, JobStatus.PROCESSING)
             cluster_groups = await _run_pipeline(job_id, min_samples, max_dist_m, max_alt_diff_m)
             await _create_clusters_from_result(session, job_id, cluster_groups)
-            await _mark_job_status(session, job_id, "COMPLETED")
+            await _mark_job_status(session, job_id, JobStatus.COMPLETED)
             await session.commit()
             logger.info("Pipeline for job %s completed successfully.", job_id)
         except Exception as exc:
@@ -49,7 +49,7 @@ async def run_pipeline_task(
 
             # 실패 시 상태를 FAILED 로 기록
             async with AsyncSessionLocal() as session2:
-                await _mark_job_status(session2, job_id, "FAILED")
+                await _mark_job_status(session2, job_id, JobStatus.FAILED)
                 await session2.commit()
                 logger.warning("Job %s status updated to FAILED.", job_id)
 

@@ -13,6 +13,8 @@ class GlobalSettings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "Photo Clustering Service"
     CLUSTER_SERVICE_URL: str = "http://host.docker.internal:8001"
+    # The base URL for the callback endpoint, reachable from the cluster service
+    CALLBACK_BASE_URL: str = "http://localhost:8000/api"
 
     # Logging configuration
     ENVIRONMENT: str = "development"

@@ -3,26 +3,25 @@ from typing import List
 
 from app.api.endpoints.auth import get_current_user
 from app.db.database import get_db
+from app.models.cluster import Cluster
+from app.models.job import ExportJob, Job, JobStatus
+from app.models.photo import Photo
 from app.models.user import User
+from app.schemas.enum import ExportStatus, JobStatus
 from app.schemas.job import (
-    ExportStatusOut,
+    ExportStatusResponse,
     JobClusterRequest,
+    JobDetailsResponse,
     JobRequest,
     JobResponse,
     JobStatusResponse,
     PhotoUploadResponse,
 )
 from app.services.job import JobService
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Depends,
-    File,
-    HTTPException,
-    UploadFile,
-    status,
-)
+from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -39,6 +38,7 @@ async def get_jobs(
             id=job.id, 
             title=job.title, 
             status=job.status, 
+            export_status=job.export_job.status if job.export_job else ExportStatus.PENDING, 
             created_at=job.created_at
         )
         for job in jobs
@@ -54,8 +54,13 @@ async def create_job(
     service = JobService(db)
     logger.info(f"User {current_user.user_id} creating job with title: '{payload.title}'")
     job = await service.create_job(user=current_user, title=payload.title)
+    
     return JobResponse(
-        id=job.id, title=job.title, status=job.status, created_at=job.created_at
+        id=job.id, 
+        title=job.title, 
+        status=job.status, 
+        export_status=ExportStatus.PENDING, 
+        created_at=job.created_at
     )
 
 
@@ -70,7 +75,7 @@ async def delete_job(
     await service.delete_job(job_id=job_id)
     return JobStatusResponse(
         job_id=job_id,
-        status="DELETED",
+        status=JobStatus.DELETED,
         message="Job Deleted",
     )
 
@@ -81,8 +86,37 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
     service = JobService(db)
     job = await service.get_job(job_id=job_id)
     return JobResponse(
-        id=job.id, title=job.title, status=job.status, created_at=job.created_at
+            id=job.id, 
+            title=job.title, 
+            status=job.status, 
+            export_status=job.export_job.status if job.export_job else ExportStatus.PENDING, 
+            created_at=job.created_at)
+
+
+@router.get("/jobs/{job_id}/details", response_model=JobDetailsResponse)
+async def get_job_details(
+    job_id: str, 
+    db: AsyncSession = Depends(get_db)
+):
+    """Get full job details including photos and clusters."""
+    # Efficiently fetch everything in one query or minimal queries
+    query = (
+        select(Job)
+        .where(Job.id == job_id)
+        .options(
+            selectinload(Job.photos),
+            selectinload(Job.clusters).selectinload(Cluster.photos),
+            selectinload(Job.export_job)
+        )
     )
+    result = await db.execute(query)
+    job = result.scalar_one_or_none()
+    
+    if not job:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return job
 
 
 @router.post(
@@ -104,6 +138,7 @@ async def upload_photos(
     "/jobs/{job_id}/cluster",
     summary="Start clustering",
     response_model=JobStatusResponse,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def start_cluster(
     job_id: str, 
@@ -112,19 +147,19 @@ async def start_cluster(
     db: AsyncSession = Depends(get_db)
 ):
     service = JobService(db)
-    await service.start_cluster_server(job_id=job_id, 
+    job, data = await service.start_cluster_server(job_id=job_id, 
                                 background_tasks=background_tasks,
                                 min_samples=payload.min_samples, 
                                 max_dist_m=payload.max_dist_m, 
                                 max_alt_diff_m=payload.max_alt_diff_m)
     return JobStatusResponse(
         job_id=job_id,
-        status="PROCESSING",
-        message="Clustering started",
+        status=job.status,
+        message=str(data),
     )
 
 
-@router.post("/jobs/{job_id}/export", response_model=ExportStatusOut)
+@router.post("/jobs/{job_id}/export", response_model=ExportStatusResponse, status_code=status.HTTP_202_ACCEPTED)
 async def start_export(
     job_id: str,
     background_tasks: BackgroundTasks,
@@ -132,23 +167,23 @@ async def start_export(
 ):
     service = JobService(db)
     export_job = await service.start_export(job_id=job_id, background_tasks=background_tasks)
-    return ExportStatusOut(status=export_job.status)
+    return ExportStatusResponse(status=export_job.status)
 
 
-@router.get("/jobs/{job_id}/export/status", response_model=ExportStatusOut)
+@router.get("/jobs/{job_id}/export/status", response_model=ExportStatusResponse)
 async def get_export_status(
     job_id: str,
     db: AsyncSession = Depends(get_db)
 ):
     service = JobService(db)
     status, pdf_url, err = await service.get_export_job(job_id=job_id)
-    return ExportStatusOut(
+    return ExportStatusResponse(
         status=status,
         pdf_url=pdf_url,
         error_message=err,
     )
 
-# @router.get("/job/{job_id}/export/download")
+# @router.get("/jobs/{job_id}/export/download")
 # def download_export_pdf(
 #     job_id: str,
 #     db: AsyncSession = Depends(get_db)

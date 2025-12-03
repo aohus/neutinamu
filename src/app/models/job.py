@@ -1,30 +1,14 @@
-import uuid
 from datetime import datetime
-from enum import Enum
 
 from app.db.database import Base
 from app.models.utils import generate_short_id
+from app.schemas.enum import ExportStatus, JobStatus
 from sqlalchemy import Column, DateTime
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-
-
-class ClusterStatus(str, Enum):
-    UPLOADING = "UPLOADING"
-    CREATED = "CREATED"
-    RUN_CLUSTERING = "RUN_CLUSTERING"
-    EXPORTED = "EXPORTED"
-
-
-class Status(str, Enum):
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    DONE = "DONE"
-    FAILED = "FAILED"
-    EXPORTED = "EXPORTED"
 
 
 class Job(Base):
@@ -33,7 +17,7 @@ class Job(Base):
     id = Column(String, primary_key=True, default=lambda: generate_short_id("job"))
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)
     title = Column(String, nullable=False)
-    status = Column(String, default="CREATED")
+    status = Column(SqlEnum(JobStatus), default=JobStatus.CREATED)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
@@ -52,14 +36,14 @@ class ClusterJob(Base):
 
     id = Column(String, primary_key=True, index=True, default=lambda: generate_short_id("clsJob"))
     job_id = Column(String, ForeignKey("jobs.id", ondelete="CASCADE"))
-    status = Column(SqlEnum(Status), default=Status.PENDING)
+    error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     finished_at = Column(DateTime, nullable=True)
 
     job = relationship("Job", back_populates="cluster_job")
     
     def __repr__(self) -> str:
-        return f"<ClusterJob(id={self.id}, title={self.job.title}), status={self.status}>"
+        return f"<ClusterJob(id={self.id}, title={self.job.title})>"
 
 
 class ExportJob(Base):
@@ -67,7 +51,7 @@ class ExportJob(Base):
 
     id = Column(String, primary_key=True, index=True, default=lambda: generate_short_id("expJob"))
     job_id = Column(String, ForeignKey("jobs.id", ondelete="CASCADE"))
-    status = Column(SqlEnum(Status), default=Status.PENDING)
+    status = Column(SqlEnum(ExportStatus), default=ExportStatus.PENDING)
     created_at = Column(DateTime, default=datetime.now)
     finished_at = Column(DateTime, nullable=True)
     pdf_path = Column(String, nullable=True)
