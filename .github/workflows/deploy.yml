@@ -1,0 +1,58 @@
+name: Deploy to GCE (Multi-Repo)
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy using SSH
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.GCP_VM_HOST }}
+        username: ${{ secrets.GCP_VM_USERNAME }}
+        key: ${{ secrets.GCP_VM_SSH_KEY }}
+        script: |
+          # 1. 작업 디렉토리 생성 및 이동
+          mkdir -p photo-organizer
+          cd photo-organizer
+
+          # 2. Backend 리포지토리 업데이트
+          if [ ! -d "backend" ]; then
+            git clone https://github.com/aohus/snap-to-report-api.git backend
+          else
+            cd backend && git pull origin main && cd ..
+          fi
+
+          # 3. Frontend 리포지토리 업데이트
+          if [ ! -d "frontend" ]; then
+            git clone https://github.com/aohus/snap-to-report-frontend.git frontend
+          else
+            cd frontend && git pull origin main && cd ..
+          fi
+
+          # 4. 환경 변수 파일 (.env) 생성 (Backend, Frontend 구분이 없으므로 루트에 하나만 생성하여 공유)
+          cat <<EOF > .env
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD}}
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+          SECRET_KEY=${{ secrets.SECRET_KEY }}
+          ALGORITHM=HS256
+          ACCESS_TOKEN_EXPIRE_MINUTES=1440
+          STORAGE_TYPE=gcs
+          GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}
+          EOF
+
+          # 5. GCS Key 파일 생성 (root에 생성 후 backend 컨테이너에 마운트)
+          echo '${{ secrets.GCS_SA_KEY_JSON }}' > gcs-key.json
+
+          # 6. docker-compose.prod.yml 복사 또는 생성 (Backend 리포지토리에 파일이 있다면 복사, 없다면 여기서 생성)
+          cp backend/docker-compose.prod.yml . 
+
+          # 7. Docker Compose 재시작 --build 옵션으로 변경된 코드를 기반으로 이미지를 새로 빌드합니다.
+          docker compose -f docker-compose.prod.yml up -d --build
+
+          # 8. 불필요한 이미지 정리 (용량 확보)
+          docker image prune -f

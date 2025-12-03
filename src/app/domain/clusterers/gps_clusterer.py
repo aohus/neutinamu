@@ -1,58 +1,146 @@
 import logging
 import math
 from collections import Counter
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
+import numpy as np
 from app.domain.clusterers.base_clusterer import Clusterer
 from app.models.photometa import PhotoMeta
 from pyproj import Geod
-
-try:
-    import hdbscan
-except ImportError:
-    hdbscan = None
-    print("hdbscan not found, falling back to DBSCAN. For better results, please install it: pip install hdbscan")
-import numpy as np
-from scipy import stats
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import DBSCAN, OPTICS
 
 logger = logging.getLogger(__name__)
 
+# Try importing HDBSCAN
+try:
+    import hdbscan
+    HAS_HDBSCAN = True
+except ImportError:
+    HAS_HDBSCAN = False
+    logger.warning("HDBSCAN not found. Falling back to OPTICS/DBSCAN.")
 
 class GPSCluster(Clusterer):
     def __init__(self):
-        self.executer = DbscanExecuter()
         self.max_dist_m = 15
-        self.max_alt_diff_m = 15
         self.min_samples = 2
-
-    async def cluster(self, photos: List[PhotoMeta]) -> List[List[PhotoMeta]]:
-        return await self.cluster_loop(photos, is_main=True)
-    
-    def get_stats(self, clusters):
-        if not clusters:
-            return 0, 0
-        counter = Counter([len(c) for c in clusters])
-        return 3, 3
         
-    async def cluster_loop(self, photos: List[PhotoMeta], is_main=False) -> List[List[PhotoMeta]]:
-        while True:
-            clusters = await self.executer.cluster(photos, 
-                                                   self.max_dist_m, 
-                                                   self.max_alt_diff_m, 
-                                                   min_samples=self.min_samples)
-            mode, mean = self.get_stats(clusters)
-            logger.info(f"Iteration: photos: {len(photos)},mode={mode}, mean={mean}, max_dist_m={self.max_dist_m}, total clusters={len(clusters)}")
+    async def cluster(self, photos: List[PhotoMeta]) -> List[List[PhotoMeta]]:
+        valid_photos = [p for p in photos if p.lat is not None and p.lon is not None]
+        no_gps_photos = [p for p in photos if p.lat is None or p.lon is None]
+        
+        if not valid_photos:
+            return [[p] for p in photos]
+
+        if HAS_HDBSCAN:
+            # Initial epsilon ~ 2.5m
+            initial_epsilon = 2.5 / 6371000.0
+            clusters = self._cluster_hdbscan_recursive(valid_photos, initial_epsilon)
+        else:
+            clusters = self._cluster_optics(valid_photos)
             
-            # if is_main:
-            #     self.executer.process_outlier(clusters, max_dist_m=self.max_dist_m, max_alt_diff_m=self.max_alt_diff_m, min_samples=self.min_samples)
-            return clusters
-            # if 3 <= mean <= 5 or self.max_dist_m <= 3 or self.max_dist_m >= self.config.MAX_LOCATION_DIST_M + 40.0:
-            #     return clusters
-            # if mean < 3:
-            #     self.max_dist_m = self.max_dist_m + 2
-            # if mean > 5:
-            #     self.max_dist_m = self.max_dist_m - 2
+        for p in no_gps_photos:
+            clusters.append([p])
+            
+        return clusters
+
+    def _cluster_hdbscan_recursive(self, photos: List[PhotoMeta], epsilon_rad: float) -> List[List[PhotoMeta]]:
+        """
+        Recursively cluster using HDBSCAN.
+        If a cluster is too large (> 8), try clustering it again with a tighter epsilon.
+        """
+        if len(photos) < 2:
+            return [photos]
+
+        coords = np.radians([[p.lat, p.lon] for p in photos])
+        
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=2,
+            min_samples=1,
+            metric='haversine',
+            cluster_selection_epsilon=epsilon_rad, 
+            cluster_selection_method='eom',
+            allow_single_cluster=True # Important for recursion to work on subsets
+        )
+        labels = clusterer.fit_predict(coords)
+        
+        initial_clusters = self._group_by_labels(photos, labels)
+        
+        final_clusters = []
+        
+        # Check each cluster size
+        for group in initial_clusters:
+            # If group is large and we can tighten epsilon further
+            if len(group) > 8 and epsilon_rad > (0.5 / 6371000.0):
+                # If the clusterer returned just one cluster (itself) and it's still large,
+                # we force a split by significantly reducing epsilon or increasing min_cluster_size?
+                # Actually, if allow_single_cluster=True, it might just return all as one.
+                # We need to ensure we are making progress. 
+                # If labels are all the same (and not -1), we haven't split.
+                
+                unique_labels = set(labels)
+                if len(unique_labels) == 1 and -1 not in unique_labels:
+                     # It found 1 cluster. Tighten epsilon.
+                     new_epsilon = epsilon_rad * 0.75
+                     logger.info(f"Refining large cluster (size {len(group)}) with epsilon {new_epsilon * 6371000.0:.2f}m")
+                     sub_clusters = self._cluster_hdbscan_recursive(group, new_epsilon)
+                     
+                     # If recursion didn't split anything (returned same group), just keep it to avoid infinite loop
+                     if len(sub_clusters) == 1 and len(sub_clusters[0]) == len(group):
+                         final_clusters.append(group)
+                     else:
+                         final_clusters.extend(sub_clusters)
+                else:
+                    # It split somewhat. Check sub-clusters recursively?
+                    # For now, let's assume the split was good enough, or recurse on THEM.
+                    # Let's recurse on each result to be safe.
+                    new_epsilon = epsilon_rad # Keep same epsilon or tighten? 
+                    # If we split, the sub-clusters might still be dense.
+                    # Let's keep tightening to be aggressive on large groups.
+                    new_epsilon = epsilon_rad * 0.75
+                    
+                    # We must be careful not to infinite loop if geometry is identical.
+                    # Simple check: if variance is zero (all same point), don't split.
+                    if self._is_same_location(group):
+                        final_clusters.append(group)
+                    else:
+                        sub_clusters = self._cluster_hdbscan_recursive(group, new_epsilon)
+                        final_clusters.extend(sub_clusters)
+            else:
+                final_clusters.append(group)
+                
+        return final_clusters
+
+    def _is_same_location(self, photos: List[PhotoMeta]) -> bool:
+        if not photos: return True
+        lats = [p.lat for p in photos]
+        lons = [p.lon for p in photos]
+        return (max(lats) - min(lats) < 1e-7) and (max(lons) - min(lons) < 1e-7)
+
+    def _cluster_optics(self, photos: List[PhotoMeta]) -> List[List[PhotoMeta]]:
+        coords = np.radians([[p.lat, p.lon] for p in photos])
+        
+        clusterer = OPTICS(
+            min_samples=2,
+            metric='haversine',
+            max_eps=50.0 / 6371000.0,
+            xi=0.05 
+        )
+        labels = clusterer.fit_predict(coords)
+        return self._group_by_labels(photos, labels)
+
+    def _group_by_labels(self, photos: List[PhotoMeta], labels: np.ndarray) -> List[List[PhotoMeta]]:
+        clusters = {}
+        noise = []
+        for p, label in zip(photos, labels):
+            if label == -1:
+                noise.append(p)
+            else:
+                clusters.setdefault(label, []).append(p)
+        
+        result = list(clusters.values())
+        for p in noise:
+            result.append([p])
+        return result
 
 
 class BaseExecuter:
@@ -83,19 +171,6 @@ class BaseExecuter:
         """
         R = 6371000.0  # Earth radius in meters
 
-        # # 수평 거리 (haversine)
-        # phi1 = math.radians(lat1)
-        # phi2 = math.radians(lat2)
-        # dphi = math.radians(lat2 - lat1)
-        # dlambda = math.radians(lon2 - lon1)
-
-        # a = (
-        #     math.sin(dphi / 2.0) ** 2
-        #     + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0) ** 2
-        # )
-        # c = 2 * math.asin(math.sqrt(a))
-        # d2d = R * c  # 수평 거리
-
         d2d = self._geo_distanc_m(lat1, lon1, lat2, lon2)
         
         # 고도 포함 3D 거리
@@ -105,127 +180,3 @@ class BaseExecuter:
             return math.sqrt(d2d**2 + (w_alt * dz)**2)
         else:
             return d2d
-    
-    async def cluster(self, photos: List[PhotoMeta], max_dist_m, max_alt_diff_m=None, *, args, kwargs) -> List[List[PhotoMeta]]:
-        raise NotImplementedError
-    
-    async def process_outlier(self, clusters: List[List[PhotoMeta]], max_dist_me, max_alt_diff_m=None, *, args, kwargs) -> List[List[PhotoMeta]]:
-        raise NotImplementedError
-
-
-class GreedyExecuter(BaseExecuter):
-    async def cluster(self, photos: List[PhotoMeta], max_dist_m, max_alt_diff_m=None, min_samples=None) -> List[List[PhotoMeta]]:
-        """Clusters photos based on their GPS location."""
-        clusters: List[List[PhotoMeta]] = []
-
-        # Filter out photos without GPS data first
-        photos_with_gps = [p for p in photos if p.lat is not None and p.lon is not None]
-
-        for photo in photos_with_gps:
-            assigned = False
-            for cluster in clusters:
-                center = cluster[0]
-                
-                dist = self._haversine_distance_m(photo.lat, photo.lon, center.lat, center.lon)
-                
-                alt_diff = 0.0
-                if photo.alt is not None and center.alt is not None:
-                    alt_diff = abs(photo.alt - center.alt)
-
-                if dist <= self.max_dist_m and alt_diff <= self.max_alt_diff_m:
-                    cluster.append(photo)
-                    assigned = True
-                    break
-            
-            if not assigned:
-                clusters.append([photo])
-        
-        # Include photos without GPS data as their own individual clusters
-        photos_without_gps = [p for p in photos if p.lat is None or p.lon is None]
-        for photo in photos_without_gps:
-            clusters.append([photo])
-        return clusters
-    
-    async def process_outlier(self, clusters: List[List[PhotoMeta]], max_dist_m, max_alt_diff_m=None, min_samples=None) -> List[List[PhotoMeta]]:
-        final_clusters = []
-        single_photo_cluster = []
-
-        for cluster in clusters:
-            if len(cluster) < 2:
-                single_photo_cluster.append(cluster[0])
-            if len(cluster) > 5:
-                sub_clusters = await self.split_large_clusters(cluster, max_dist_m=max_dist_m)
-                for sub_cluster in sub_clusters:
-                    if len(sub_cluster) == 1:
-                        single_photo_cluster.append(sub_cluster[0])
-                    else:
-                        final_clusters.append(sub_cluster)
-            else:
-                final_clusters.append(cluster)
-        
-        if single_photo_cluster:
-            sub_clusters = await self.gather_single_clusters(single_photo_cluster, max_dist_m=max_dist_m)
-            single_photo_cluster = []
-            for sub_cluster in sub_clusters:
-                if len(sub_cluster) == 1:
-                    single_photo_cluster.append(sub_cluster[0])
-            final_clusters.append(single_photo_cluster)
-        return final_clusters
-    
-    async def split_large_clusters(self, cluster: List[PhotoMeta], max_dist_m: float = None) -> List[List[PhotoMeta]]:
-        if len(cluster) > 10:
-            self.max_dist_m = max_dist_m - max_dist_m / 4.0
-        return await self.cluster(cluster)
-
-    async def gather_single_clusters(self, cluster: List[PhotoMeta], max_dist_m: float = None) -> List[PhotoMeta]:
-        self.max_dist_m = max_dist_m + max_dist_m / 5.0
-        return await self.cluster(cluster)
-
-
-class DbscanExecuter(BaseExecuter):
-    def build_distance_matrix(self, photos):
-        gps_photos = [p for p in photos if p.lat is not None and p.lon is not None]
-        n = len(gps_photos)
-        if n == 0:
-            return gps_photos, None
-
-        D = np.zeros((n, n), dtype=float)
-        for i in range(n):
-            for j in range(i + 1, n):
-                d = self._haversine_distance_m(
-                    gps_photos[i].lat, gps_photos[i].lon,
-                    gps_photos[j].lat, gps_photos[j].lon,
-                )
-                D[i, j] = D[j, i] = d
-        return gps_photos, D
-
-    async def cluster(self, photos, max_dist_m: float, max_alt_diff_m: float, min_samples: int = 3):
-        gps_photos, D = self.build_distance_matrix(photos)
-        if D is None:
-            return []
-
-        db = DBSCAN(
-            eps=max_dist_m,          # 여기서는 그대로 "미터" 단위
-            min_samples=min_samples,
-            metric="precomputed",
-        ).fit(D)
-
-        labels = db.labels_
-        clusters_dict = {}
-        for label, p in zip(labels, gps_photos):
-            # if label == -1:
-            #     continue
-            clusters_dict.setdefault(label, []).append(p)
-        clusters = [clusters_dict[k] for k in sorted(clusters_dict.keys())]
-        return clusters
-
-    # async def process_outlier(self, clusters: List[List[PhotoMeta]], max_dist_m, max_alt_diff_m, min_samples) -> List[List[PhotoMeta]]:
-    #     final_clusters = []
-    #     for cluster in clusters:
-    #         if len(cluster) > 5:
-    #             sub_clusters = await self.cluster(cluster, max_dist_m, max_alt_diff_m, min_samples)
-    #             for sub_cluster in sub_clusters:
-    #                 final_clusters.append(sub_cluster)
-    #         else:
-    #             final_clusters.append(cluster)
-    #     return final_clusters
