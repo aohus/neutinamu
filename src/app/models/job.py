@@ -3,7 +3,7 @@ from datetime import datetime
 from app.db.database import Base
 from app.models.utils import generate_short_id
 from app.schemas.enum import ExportStatus, JobStatus
-from sqlalchemy import Column, DateTime
+from sqlalchemy import Column, DateTime, JSON
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -37,6 +37,7 @@ class ClusterJob(Base):
     id = Column(String, primary_key=True, index=True, default=lambda: generate_short_id("clsJob"))
     job_id = Column(String, ForeignKey("jobs.id", ondelete="CASCADE"))
     error_message = Column(Text, nullable=True)
+    result = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     finished_at = Column(DateTime, nullable=True)
 

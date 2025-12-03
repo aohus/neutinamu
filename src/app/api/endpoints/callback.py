@@ -69,39 +69,71 @@ async def create_clusters(db: AsyncSession, cluster_job: ClusterJob, result: dic
     await db.execute(delete(Cluster).where(Cluster.job_id == job_id))
     await db.flush()
 
+    # Create "reserve" cluster for noise (-1) or unassigned
+    reserve_cluster = Cluster(
+        job_id=job_id,
+        name="reserve",
+        order_index=-1,
+    )
+    db.add(reserve_cluster)
+    await db.flush()
+
     # 3. Create Clusters and assign Photos
     for c_data in cluster_json:
-        order_index = int(c_data.get("id", 0))
-        count = int(c_data.get("count", 0))
+        cluster_id_num = int(c_data.get("id", 0))
         
-        # Create Cluster
-        new_cluster = Cluster(
-            job_id=job_id,
-            name=f"Group {order_index + 1}",
-            order_index=order_index,
-        )
-        db.add(new_cluster)
-        await db.flush()  # To get new_cluster.id
+        # If id is -1, it's noise -> assign to reserve
+        if cluster_id_num == -1:
+            target_cluster_id = reserve_cluster.id
+        else:
+            # Create Cluster
+            new_cluster = Cluster(
+                job_id=job_id,
+                name=f"Group {cluster_id_num + 1}",
+                order_index=cluster_id_num,
+            )
+            db.add(new_cluster)
+            await db.flush()
+            target_cluster_id = new_cluster.id
         
-        # Assign Photos
-        cluster_photos_paths = c_data.get("photos", [])
-        for p_path in cluster_photos_paths:
+        # Assign Photos and Update Metadata
+        # photo_details is a list of objects with path, timestamp, lat, lon
+        photo_details = c_data.get("photo_details", [])
+        
+        # If photo_details is empty, fallback to "photos" (list of paths)
+        if not photo_details:
+            photo_paths = c_data.get("photos", [])
+            photo_details = [{"path": p} for p in photo_paths]
+
+        for idx, p_detail in enumerate(photo_details):
+            p_path = p_detail.get("path")
+            
             # Match photo by storage_path
-            # The returned p_path is absolute, storage_path is relative.
-            # Check if p_path ends with storage_path.
             matched_photo = None
             for photo in photos:
-                if p_path.endswith(photo.storage_path):
+                if p_path and p_path.endswith(photo.storage_path):
                     matched_photo = photo
                     break
             
             if matched_photo:
-                matched_photo.cluster_id = new_cluster.id
+                matched_photo.cluster_id = target_cluster_id
+                matched_photo.order_index = idx # Use index in the list as order
+                
+                # Update metadata if provided
+                if p_detail.get("timestamp"):
+                    # timestamp is float (unix epoch) -> convert to datetime
+                    from datetime import datetime
+                    matched_photo.meta_timestamp = datetime.fromtimestamp(p_detail.get("timestamp"))
+                if p_detail.get("lat"):
+                    matched_photo.meta_lat = p_detail.get("lat")
+                if p_detail.get("lon"):
+                    matched_photo.meta_lon = p_detail.get("lon")
             else:
                 logger.warning(f"Photo path not matched: {p_path}")
 
     # 4. Update Job and ClusterJob
     cluster_job.finished_at = func.now()
+    cluster_job.result = result # Save raw result
     
     job_result = await db.execute(select(Job).where(Job.id == job_id))
     job = job_result.scalar_one()

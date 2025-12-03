@@ -168,12 +168,26 @@ class JobService:
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        # 이미 돌고 있으면 막기
-        # if job.status in {JobStatus.PROCESSING}:
-        #     raise HTTPException(
-        #         status_code=409,
-        #         detail=f"Job {job_id} is already running deep clustering.",
-        #     )
+        # If retrying, clear previous results
+        if job.status in [JobStatus.COMPLETED, JobStatus.FAILED]:
+            logger.info(f"Clearing previous clusters for job {job_id}")
+            cluster_ids_subq = (
+                select(Cluster.id)
+                .where(Cluster.job_id == job_id)
+                .subquery()
+            )
+
+            # Unassign photos
+            await self.db.execute(
+                update(Photo)
+                .where(Photo.cluster_id.in_(select(cluster_ids_subq.c.id)))
+                .values(cluster_id=None)
+            )
+
+            # Delete clusters
+            await self.db.execute(
+                delete(Cluster).where(Cluster.id.in_(select(cluster_ids_subq.c.id)))
+            )
 
         # 상태를 PENDING -> RUNNING(soon) 으로 바꾸기 전에 표시만
         job.status = JobStatus.PENDING
