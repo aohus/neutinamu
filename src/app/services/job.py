@@ -10,7 +10,7 @@ from app.domain.generate_pdf import generate_pdf_for_session
 from app.domain.pipeline import PhotoClusteringPipeline
 from app.domain.storage.local import LocalStorageService as StorageService
 from app.models.cluster import Cluster
-from app.models.job import ExportJob, Job, Status
+from app.models.job import ExportJob, ExportStatus, Job, JobStatus
 from app.models.photo import Photo
 from app.models.user import User
 from fastapi import BackgroundTasks, File, HTTPException, UploadFile
@@ -28,7 +28,9 @@ class JobService:
     
     async def get_jobs(self, user: User):
         logger.info(f"Fetching jobs for user: {user.user_id}")
-        result = await self.db.execute(select(Job).where(Job.user_id == user.user_id))
+        result = await self.db.execute(select(Job)
+                                       .where(Job.user_id == user.user_id)
+                                       .options(selectinload(Job.export_job.and_(ExportJob.finished_at.is_(None)))))
         jobs = result.scalars().all()
         
         if not jobs:
@@ -58,7 +60,9 @@ class JobService:
 
     async def get_job(self, job_id: str):
         logger.debug(f"Fetching job with ID: {job_id}")
-        result = await self.db.execute(select(Job).where(Job.id == job_id))
+        result = await self.db.execute(select(Job)
+                                       .where(Job.id == job_id)            
+                                       .options(selectinload(Job.export_job.and_(ExportJob.finished_at.is_(None)))))
         job = result.scalars().first()
         if not job:
             logger.warning(f"Job with ID {job_id} not found.")
@@ -120,10 +124,10 @@ class JobService:
             logger.error(f"Clustering trigger failed: Job with ID {job_id} not found.")
             raise HTTPException(status_code=404, detail="Job not found")
 
-        if job.status == Status.RUNNING:
+        if job.status == JobStatus.PROCESSING:
             raise HTTPException(status_code=404, detail="Job is now PROCESSING")
         
-        if job.status == "COMPLETED":
+        if job.status == JobStatus.COMPLETED:
             cluster_ids_subq = (
                 select(Cluster.id)
                 .where(Cluster.job_id == job_id)
@@ -143,7 +147,7 @@ class JobService:
             )
 
         # Update status
-        job.status = Status.PENDING
+        job.status = JobStatus.PENDING
         await self.db.commit()
         logger.info(f"Job {job_id} status updated to PROCESSING.")
 
@@ -165,20 +169,19 @@ class JobService:
             raise HTTPException(status_code=404, detail="Job not found")
 
         # 이미 돌고 있으면 막기
-        if job.status in {Status.RUNNING}:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Job {job_id} is already running deep clustering.",
-            )
+        # if job.status in {JobStatus.PROCESSING}:
+        #     raise HTTPException(
+        #         status_code=409,
+        #         detail=f"Job {job_id} is already running deep clustering.",
+        #     )
 
         # 상태를 PENDING -> RUNNING(soon) 으로 바꾸기 전에 표시만
-        job.status = Status.PENDING
+        job.status = JobStatus.PENDING
         await self.db.commit()
 
-        # 백그라운드로 비동기 실행
-        asyncio.create_task(run_deep_cluster_for_job(job_id))
-        return
-    
+        logger.info(f"Request deep_cluster logic start ")
+        data = await run_deep_cluster_for_job(job_id)
+        return job, data
 
     async def start_export(self, job_id: str, background_tasks: BackgroundTasks):
         result = await self.db.execute(select(Job).where(Job.id == job_id))
@@ -186,13 +189,13 @@ class JobService:
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        # if job.export_job and job.export_job.status in {
-        #     Status.PENDING,
-        #     Status.RUNNING,
-        # }:
-        #     raise HTTPException(status_code=400, detail="Export already in progress")
+        if job.export_job and job.export_job.status in {
+            ExportStatus.PENDING,
+            ExportStatus.PROCESSING,
+        }:
+            raise HTTPException(status_code=400, detail="Export already in progress")
 
-        export_job = ExportJob(job_id=job.id, status=Status.PENDING)
+        export_job = ExportJob(job_id=job.id, status=ExportStatus.PENDING)
         self.db.add(export_job)
         await self.db.commit()
         await self.db.refresh(export_job)
