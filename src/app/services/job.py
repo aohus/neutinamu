@@ -1,14 +1,14 @@
 import asyncio
 import logging
-from typing import List
 
-from app.core.config import JobConfig
+from app.core.config import settings
 from app.db.database import AsyncSessionLocal
 from app.domain.cluster_background import run_pipeline_task
 from app.domain.cluster_client import run_deep_cluster_for_job
 from app.domain.generate_pdf import generate_pdf_for_session
-from app.domain.pipeline import PhotoClusteringPipeline
-from app.domain.storage.local import LocalStorageService as StorageService
+from app.domain.storage.factory import (
+    get_storage_client,  # Import storage client factory
+)
 from app.models.cluster import Cluster
 from app.models.job import ExportJob, ExportStatus, Job, JobStatus
 from app.models.photo import Photo
@@ -74,7 +74,7 @@ class JobService:
     async def upload_photos(
         self,
         job_id: str,
-        files: List[UploadFile] = File(...),
+        files: list[UploadFile] = File(...),
     ):
         logger.info(f"Uploading {len(files)} files for job ID: {job_id}")
         # Check if job exists
@@ -84,19 +84,30 @@ class JobService:
             logger.error(f"Upload failed: Job with ID {job_id} not found.")
             raise HTTPException(status_code=404, detail="Job not found")
 
-        config = JobConfig(job_id=job.id)
-        storage = StorageService(config)
+        # config = JobConfig(job_id=job.id) # JobConfig is for clustering params, not storage instantiation
+        storage = get_storage_client() # Use the factory to get the correct storage service
 
         async def process_file(file: UploadFile):
             logger.debug(f"Processing file: {file.filename}")
-            file_path = await storage.save_file(file)
+
+            # Determine the storage path based on storage type
+            if settings.STORAGE_TYPE == "local":
+                # Local storage path: job_id/filename
+                target_path = f"{job.id}/{file.filename}"
+            else:
+                # GCS/S3 storage path: user_id/job_id/filename
+                target_path = f"{job.user_id}/{job.id}/{file.filename}"
+
+            # Pass the file's content (file.file) and content_type
+            saved_path = await storage.save_file(file, target_path, file.content_type)
+            
             photo = Photo(
                 job_id=job_id,
                 original_filename=file.filename,
-                storage_path=str(file_path.relative_to(config.MEDIA_ROOT)),
-                thumbnail_path=str(file_path.relative_to(config.MEDIA_ROOT)),
+                storage_path=saved_path, # saved_path is already the correct path from storage service
+                thumbnail_path=saved_path, # assuming thumbnail will be derived from this path
             )
-            logger.debug(f"Saved {file.filename} to {file_path}")
+            logger.debug(f"Saved {file.filename} to {saved_path}")
             return photo
 
         # Process files concurrently
@@ -126,36 +137,18 @@ class JobService:
 
         if job.status == JobStatus.PROCESSING:
             raise HTTPException(status_code=404, detail="Job is now PROCESSING")
-        
-        if job.status == JobStatus.COMPLETED:
-            cluster_ids_subq = (
-                select(Cluster.id)
-                .where(Cluster.job_id == job_id)
-                .subquery()
-            )
-
-            # 2) 그 cluster 들을 참조하는 Photo.cluster_id -> NULL
-            await self.db.execute(
-                update(Photo)
-                .where(Photo.cluster_id.in_(select(cluster_ids_subq.c.id)))
-                .values(cluster_id=None)
-            )
-
-            # 3) Cluster 삭제
-            await self.db.execute(
-                delete(Cluster).where(Cluster.id.in_(select(cluster_ids_subq.c.id)))
-            )
 
         # Update status
         job.status = JobStatus.PENDING
         await self.db.commit()
-        logger.info(f"Job {job_id} status updated to PROCESSING.")
+        logger.info(f"Job {job_id} status updated to PENDING.")
 
         # Trigger pipeline in background
-        # background_tasks.add_task(run_pipeline_task, job_id, min_samples, max_dist_m, max_alt_diff_m)
-        background_tasks.add_task(run_pipeline_task, job_id, min_samples, 3.0, max_alt_diff_m)
+        background_tasks.add_task(run_pipeline_task, job_id, min_samples, max_dist_m, max_alt_diff_m)
         logger.info(f"Clustering task for job {job_id} added to background tasks.")
-        return 
+        
+        data = {"message": "Local clustering started"}
+        return job, data
  
     async def start_cluster_server(self,
                                     job_id: str, 
@@ -169,32 +162,38 @@ class JobService:
             raise HTTPException(status_code=404, detail="Job not found")
 
         # If retrying, clear previous results
-        if job.status in [JobStatus.COMPLETED, JobStatus.FAILED]:
-            logger.info(f"Clearing previous clusters for job {job_id}")
-            cluster_ids_subq = (
-                select(Cluster.id)
-                .where(Cluster.job_id == job_id)
-                .subquery()
-            )
+        # if job.status in [JobStatus.COMPLETED, JobStatus.FAILED]:
+        #     logger.info(f"Clearing previous clusters for job {job_id}")
+        #     cluster_ids_subq = (
+        #         select(Cluster.id)
+        #         .where(Cluster.job_id == job_id)
+        #         .subquery()
+        #     )
 
-            # Unassign photos
-            await self.db.execute(
-                update(Photo)
-                .where(Photo.cluster_id.in_(select(cluster_ids_subq.c.id)))
-                .values(cluster_id=None)
-            )
+        #     # Unassign photos
+        #     await self.db.execute(
+        #         update(Photo)
+        #         .where(Photo.cluster_id.in_(select(cluster_ids_subq.c.id)))
+        #         .values(cluster_id=None)
+        #     )
 
-            # Delete clusters
-            await self.db.execute(
-                delete(Cluster).where(Cluster.id.in_(select(cluster_ids_subq.c.id)))
-            )
+        #     # Delete clusters
+        #     await self.db.execute(
+        #         delete(Cluster).where(Cluster.id.in_(select(cluster_ids_subq.c.id)))
+        #     )
 
         # 상태를 PENDING -> RUNNING(soon) 으로 바꾸기 전에 표시만
         job.status = JobStatus.PENDING
         await self.db.commit()
 
         logger.info(f"Request deep_cluster logic start ")
-        data = await run_deep_cluster_for_job(job_id)
+        # Pass parameters to the deep cluster runner
+        data = await run_deep_cluster_for_job(
+            job_id, 
+            min_samples=min_samples, 
+            max_dist_m=max_dist_m, 
+            max_alt_diff_m=max_alt_diff_m
+        )
         return job, data
 
     async def start_export(self, job_id: str, background_tasks: BackgroundTasks):

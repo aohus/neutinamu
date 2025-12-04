@@ -22,72 +22,142 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(log_record)
 
 
+# -----------------------------------------------------------------------------
+# Development Logging Configuration
+# -----------------------------------------------------------------------------
+# Console-friendly, readable text format.
+DEV_LOGGING_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "default": {
+            "format": "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": sys.stdout,
+            "formatter": "default",
+        },
+    },
+    "loggers": {
+        # Root Logger: Catches everything not caught by specific loggers
+        "root": {
+            "level": settings.LOG_LEVEL,
+            "handlers": ["console"],
+        },
+        # Application Logger
+        "app": {
+            "level": settings.LOG_LEVEL,
+            "handlers": ["console"],
+            "propagate": False,
+        },
+        # Uvicorn (FastAPI Server) Loggers
+        "uvicorn": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+        "uvicorn.access": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+        "uvicorn.error": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+        # SQLAlchemy (Database) Loggers
+        # Set to INFO to see SQL queries, DEBUG for results
+        "sqlalchemy.engine": {
+            "level": "WARNING",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+        "alembic": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": False,
+        }
+    },
+}
+
+# -----------------------------------------------------------------------------
+# Production Logging Configuration
+# -----------------------------------------------------------------------------
+# JSON structured, machine-parsable, suitable for aggregation (ELK, CloudWatch, etc.)
+PROD_LOGGING_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "json": {
+            "()": JsonFormatter,
+            "datefmt": "%Y-%m-%dT%H:%M:%S%z",
+        },
+    },
+    "handlers": {
+        "console_json": {
+            "class": "logging.StreamHandler",
+            "stream": sys.stdout,
+            "formatter": "json",
+        },
+    },
+    "loggers": {
+        "root": {
+            "level": settings.LOG_LEVEL,
+            "handlers": ["console_json"],
+        },
+        "app": {
+            "level": settings.LOG_LEVEL,
+            "handlers": ["console_json"],
+            "propagate": False,
+        },
+        "uvicorn": {
+            "level": "INFO",
+            "handlers": ["console_json"],
+            "propagate": False,
+        },
+        "uvicorn.access": {
+            "level": "INFO",
+            "handlers": ["console_json"],
+            "propagate": False,
+        },
+        "uvicorn.error": {
+            "level": "ERROR",
+            "handlers": ["console_json"],
+            "propagate": False,
+        },
+        "sqlalchemy.engine": {
+            "level": "WARNING", 
+            "handlers": ["console_json"],
+            "propagate": False,
+        },
+        "alembic": {
+            "level": "WARNING",
+            "handlers": ["console_json"],
+            "propagate": False,
+        }
+    },
+}
+
+
 def setup_logging():
     """
     Set up logging configuration based on the environment.
     """
-    log_level = settings.LOG_LEVEL.upper()
+    env = settings.ENVIRONMENT.lower()
     
-    logging_config = {
-        "version": 1,
-        "disable_existing_loggers": False,
-        "formatters": {
-            "default": {
-                "format": "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
-                "datefmt": "%Y-%m-%d %H:%M:%S",
-            },
-            "json": {
-                "()": JsonFormatter,
-                "datefmt": "%Y-%m-%dT%H:%M:%S%z",
-            },
-        },
-        "handlers": {
-            "default": {
-                "class": "logging.StreamHandler",
-                "stream": sys.stdout,
-                "formatter": "default",
-            },
-            "json": {
-                "class": "logging.StreamHandler",
-                "stream": sys.stdout,
-                "formatter": "json",
-            },
-        },
-        "loggers": {
-            "app": {
-                "level": log_level,
-                "handlers": ["default"],
-                "propagate": False,
-            },
-            "uvicorn.access": {
-                "level": "INFO",
-                "handlers": ["default"],
-                "propagate": False,
-            },
-            "uvicorn.error": {
-                "level": "ERROR",
-                "handlers": ["default"],
-                "propagate": False,
-            },
-            "sqlalchemy.engine": {
-                "level": "WARNING",
-                "handlers": ["default"],
-                "propagate": False,
-            }
-        },
-        "root": {
-            "level": log_level,
-            "handlers": ["default"]
-        },
-    }
+    if env == "production":
+        config = PROD_LOGGING_CONFIG
+    else:
+        config = DEV_LOGGING_CONFIG
 
-    if settings.ENVIRONMENT == "production":
-        logging_config["loggers"]["app"]["handlers"] = ["json"]
-        logging_config["loggers"]["uvicorn.access"]["handlers"] = ["json"]
-        logging_config["loggers"]["uvicorn.error"]["handlers"] = ["json"]
-        logging_config["root"]["handlers"] = ["json"]
-
-
-    logging.config.dictConfig(logging_config)
-    logger = logging.getLogger(__name__)
-    logger.info(f"Logging setup complete for {settings.ENVIRONMENT} environment with level {log_level}")
+    # Apply configuration
+    logging.config.dictConfig(config)
+    
+    # Log the setup confirmation (using a logger defined in the config)
+    logger = logging.getLogger("app")
+    logger.info(f"Logging setup complete for {env} environment with level {settings.LOG_LEVEL}")

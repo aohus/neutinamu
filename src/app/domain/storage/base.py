@@ -5,16 +5,17 @@ class StorageService(ABC):
     """Abstract base class for storage services."""
 
     @abstractmethod
-    async def save_file(self, file: BinaryIO, path: str) -> str:
+    async def save_file(self, file: BinaryIO, path: str, content_type: str = None) -> str:
         """
         Save a file to the storage.
         
         Args:
             file: The file-like object to save.
-            path: The destination path/key in the storage.
+            path: The destination path/key in the storage (relative to root).
+            content_type: The MIME type of the file.
             
         Returns:
-            The path/url where the file was saved.
+            The path/key where the file was saved.
         """
         pass
 
@@ -41,7 +42,7 @@ class StorageService(ABC):
             dest_path: The destination path/key.
             
         Returns:
-            The new path/url of the file.
+            The new path/key of the file.
         """
         pass
         

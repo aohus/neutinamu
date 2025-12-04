@@ -24,7 +24,7 @@ services:
   backend:
     build:
       context: ./backend # 서버의 backend 폴더 참조
-      dockerfile: src/Dockerfile
+      dockerfile: docker/Dockerfile
     container_name: prod-backend
     restart: always
     environment:
@@ -34,7 +34,7 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       ALGORITHM: ${ALGORITHM}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
-      STORAGE_TYPE: gcs
+      STORAGE_TYPE: ${STORAGE_TYPE}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
       GOOGLE_APPLICATION_CREDENTIALS: /app/gcs-key.json
       CLUSTER_SERVICE_URL: ${CLUSTER_SERVICE_URL}

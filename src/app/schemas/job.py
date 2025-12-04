@@ -11,7 +11,7 @@ class JobRequest(BaseModel):
 
 class JobClusterRequest(BaseModel):
     min_samples: Optional[int] = 3
-    max_dist_m: Optional[float] = 10.0
+    max_dist_m: Optional[float] = 12.0
     max_alt_diff_m: Optional[float] = 20.0
 
 

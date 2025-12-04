@@ -147,7 +147,7 @@ async def start_cluster(
     db: AsyncSession = Depends(get_db)
 ):
     service = JobService(db)
-    job, data = await service.start_cluster_server(job_id=job_id, 
+    job, data = await service.start_cluster(job_id=job_id, 
                                 background_tasks=background_tasks,
                                 min_samples=payload.min_samples, 
                                 max_dist_m=payload.max_dist_m, 

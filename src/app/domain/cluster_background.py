@@ -1,15 +1,17 @@
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Any, List, Sequence
 
 from app.core.config import JobConfig
 from app.db.database import AsyncSessionLocal
 from app.domain.pipeline import PhotoClusteringPipeline
-from app.domain.storage.local import LocalStorageService as StorageService
+from app.domain.storage.factory import (
+    get_storage_client,  # Import storage client factory
+)
 from app.models.cluster import Cluster
-from app.models.job import Job, JobStatus
+from app.models.job import ClusterJob, Job, JobStatus
 from app.models.photo import Photo
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -38,8 +40,14 @@ async def run_pipeline_task(
     async with AsyncSessionLocal() as session:
         try:
             await _mark_job_status(session, job_id, JobStatus.PROCESSING)
-            cluster_groups = await _run_pipeline(job_id, min_samples, max_dist_m, max_alt_diff_m)
-            await _create_clusters_from_result(session, job_id, cluster_groups)
+            cluster_job = ClusterJob(job_id=job_id)                                      
+            session.add(cluster_job)                                                     
+            await session.commit()                                                       
+            await session.refresh(cluster_job)    
+
+            photos = await _get_photos_from_job(session, job_id)
+            cluster_groups = await _run_pipeline(job_id, photos, min_samples, max_dist_m, max_alt_diff_m)
+            await _create_clusters_from_result(session, job_id, cluster_job, cluster_groups)
             await _mark_job_status(session, job_id, JobStatus.COMPLETED)
             await session.commit()
             logger.info("Pipeline for job %s completed successfully.", job_id)
@@ -50,12 +58,15 @@ async def run_pipeline_task(
             # 실패 시 상태를 FAILED 로 기록
             async with AsyncSessionLocal() as session2:
                 await _mark_job_status(session2, job_id, JobStatus.FAILED)
+                cluster_job.error_message = "No photos found"                            
+                cluster_job.finished_at = datetime.now()
                 await session2.commit()
                 logger.warning("Job %s status updated to FAILED.", job_id)
 
 
 async def _run_pipeline(
     job_id: str,
+    photos: list[Photo],
     min_samples: int, 
     max_dist_m: float, 
     max_alt_diff_m: float,
@@ -69,11 +80,15 @@ async def _run_pipeline(
                          min_samples=min_samples, 
                          max_dist_m=max_dist_m, 
                          max_alt_diff_m=max_alt_diff_m)
-    storage = StorageService(config)
-    pipeline = PhotoClusteringPipeline(storage)
-
+    storage = get_storage_client()
+    pipeline = PhotoClusteringPipeline(config, storage, photos)
     clusters = await pipeline.run()
     return clusters
+
+    
+async def _get_photos_from_job(session: AsyncSession, job_id: str) -> List[Photo]:
+    result = await session.execute(select(Photo).where(Photo.job_id == job_id))
+    return list(result.scalars().all())
 
 
 async def _mark_job_status(
@@ -86,12 +101,13 @@ async def _mark_job_status(
         logger.warning("Job %s not found while setting status to %s", job_id, status)
         return
     job.status = status
-    job.updated_at = datetime.now()  # updated_at 필드가 있다면
+    job.updated_at = datetime.now()  # updated_at 필드가 있다면  
 
 
 async def _create_clusters_from_result(
     session: AsyncSession,
     job_id: int,
+    cluster_job: ClusterJob,
     cluster_groups: Sequence[Sequence[Any]],
 ) -> list[Photo]:
     """
@@ -104,6 +120,8 @@ async def _create_clusters_from_result(
     job = await session.get(Job, job_id)
     if not job:
         raise ValueError(f"Job {job_id} not found")
+
+    await remove_previous_clusters(session, job_id)
 
     updated_photos: list[Photo] = []
     db_cluster = Cluster(
@@ -138,7 +156,9 @@ async def _create_clusters_from_result(
         # 3) Photo 레코드 업데이트
         for order_index, photo_obj in enumerate(sorted_group):
             result = await session.execute(
-                select(Photo).where(Photo.original_filename == photo_obj.original_name)
+                select(Photo).where(
+                    (Photo.original_filename == photo_obj.original_name) & (Photo.job_id == job_id)
+                )
             )
             photo = result.scalars().first()
 
@@ -147,8 +167,34 @@ async def _create_clusters_from_result(
                     "Photo not found for path %s in job %s", photo_obj.path, job_id
                 )
                 continue
-
             photo.cluster_id = db_cluster.id
             photo.order_index = order_index
+            photo.meta_lat = photo_obj.lat
+            photo.meta_lon = photo_obj.lon
+            photo.meta_timestamp = datetime.fromtimestamp(photo_obj.timestamp)
             updated_photos.append(photo)
+        
+        cluster_job.finished_at = datetime.now()
+        cluster_job.result = str(cluster_groups) # Save raw result
     return updated_photos
+
+
+async def remove_previous_clusters(session: AsyncSession, job_id: str):
+    logger.info(f"Clearing previous clusters for job {job_id}")
+    cluster_ids_subq = (
+        select(Cluster.id)
+        .where(Cluster.job_id == job_id)
+        .subquery()
+    )
+
+    # 2) 그 cluster 들을 참조하는 Photo.cluster_id -> NULL
+    await session.execute(
+        update(Photo)
+        .where(Photo.cluster_id.in_(select(cluster_ids_subq.c.id)))
+        .values(cluster_id=None)
+    )
+
+    # 3) Cluster 삭제
+    await session.execute(
+        delete(Cluster).where(Cluster.id.in_(select(cluster_ids_subq.c.id)))
+    )

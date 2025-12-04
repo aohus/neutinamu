@@ -4,23 +4,23 @@ from functools import lru_cache
 from app.core.config import settings
 
 from .base import StorageService
+from .gcs import GCSStorageService
 from .local import LocalStorageService
 from .s3 import S3StorageService
 
-# from .gcs import GCSStorageService
-
 logger = logging.getLogger(__name__)
+
 
 class StorageFactory:
     @staticmethod
     def get_storage_service(service_type: str = "local") -> StorageService:
         logger.info(f"Creating storage service of type: {service_type}")
         if service_type == "local":
-            return LocalStorageService(config=None) # LocalConfig가 필요하면 주입
+            return LocalStorageService()
         elif service_type == "s3":
             return S3StorageService()
-        # elif service_type == "gcs":
-        #     return GCSStorageService()
+        elif service_type == "gcs":
+            return GCSStorageService()
         else:
             logger.error(f"Unknown storage service type requested: {service_type}")
             raise ValueError(f"Unknown storage service type: {service_type}")

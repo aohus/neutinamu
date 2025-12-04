@@ -30,7 +30,6 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize executors and store them in the app state
     app.state.thread_executor = ThreadPoolExecutor()
     app.state.process_executor = ProcessPoolExecutor()
-    settings.DATA_DIR.mkdir(exist_ok=True)
     logger.info("Executors initialized and data directory ensured.")
     yield
 

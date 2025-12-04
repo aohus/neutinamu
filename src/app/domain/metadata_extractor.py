@@ -2,8 +2,9 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
+import httpx
 import piexif
 from app.models.photometa import PhotoMeta
 
@@ -17,10 +18,19 @@ class MetadataExtractor:
     #     self.is_cache = is_cache
 
     async def extract(self, image_path: str) -> PhotoMeta:
-        """Asynchronously extracts metadata from an image file."""
+        """Asynchronously extracts metadata from an image file or URL."""
+        exif = None
         try:
-            # Run the synchronous piexif.load in a thread pool
-            exif = self._export_exif_sync(image_path)
+            if image_path.startswith("http"):
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(image_path)
+                    resp.raise_for_status()
+                    content = resp.content
+                # Run the synchronous piexif.load with bytes
+                exif = self._export_exif_sync(content)
+            else:
+                # Run the synchronous piexif.load in a thread pool (implicitly via sync call here for now, or wrap if needed)
+                exif = self._export_exif_sync(image_path)
         except Exception as e:
             logger.error(f"Failed to run exif extraction for {image_path}: {e}")
             exif = None
@@ -73,12 +83,12 @@ class MetadataExtractor:
     async def _load_cache(self):
         pass
 
-    def _export_exif_sync(self, img_path: str) -> Optional[dict]:
-        """Synchronous helper for loading EXIF data."""
+    def _export_exif_sync(self, img_input: Union[str, bytes]) -> Optional[dict]:
+        """Synchronous helper for loading EXIF data from file path or bytes."""
         try:
-            return piexif.load(img_path)
+            return piexif.load(img_input)
         except Exception as e:
-            logger.warning(f"Failed to load EXIF from {img_path}: {e}")
+            logger.warning(f"Failed to load EXIF from input: {e}")
             return None
 
     def _rational_to_float(self, value: Any) -> Optional[float]:
@@ -146,7 +156,31 @@ class MetadataExtractor:
             try:
                 degrees, minutes, seconds = [x[0] / x[1] for x in coord]
                 result = degrees + (minutes / 60.0) + (seconds / 3600.0)
-                return result if ref in [b"N", b"E"] else -result
+                
+                # Handle reference (N/S/E/W)
+                if ref:
+                    if isinstance(ref, bytes):
+                        try:
+                            ref = ref.decode().upper()
+                        except:
+                            pass # Keep as bytes if decode fails, though unlikely for N/S/E/W
+                    if isinstance(ref, str):
+                        ref = ref.upper()
+                
+                # Check for N/E (Bytes or String)
+                if ref in [b"N", "N", b"E", "E"]:
+                    return result
+                elif ref in [b"S", "S", b"W", "W"]:
+                    return -result
+                else:
+                    # Default to positive if unknown, or handle as error. 
+                    # Existing logic returned positive for N/E and negative otherwise, 
+                    # but let's stick to explicit checks for safety.
+                    # Fallback to previous behavior: if not N/E, assume negative? 
+                    # No, standard says refs are mandatory.
+                    # Let's stick to strict check.
+                    return result if ref in [b"N", "N", b"E", "E"] else -result
+
             except (TypeError, ValueError, ZeroDivisionError, IndexError):
                 return None
 
@@ -158,6 +192,12 @@ class MetadataExtractor:
             alt_val = gps[piexif.GPSIFD.GPSAltitude]
             if alt_val[1] != 0:
                 alt = alt_val[0] / alt_val[1]
+                
+                # Handle Altitude Reference
+                # 0 = Above Sea Level, 1 = Below Sea Level
+                alt_ref = gps.get(piexif.GPSIFD.GPSAltitudeRef)
+                if alt_ref == 1 or alt_ref == b'\x01':
+                    alt = -alt
 
         direction = self._rational_to_float(gps.get(piexif.GPSIFD.GPSImgDirection))
 
