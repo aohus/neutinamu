@@ -170,14 +170,8 @@ async def generate_upload_urls(
 )
 async def complete_upload(
     job_id: str,
-    # Assuming client sends a list of {filename, storage_path} of successfully uploaded files
-    # We can reuse BatchPresignedUrlResponse structure or make a new request schema.
-    # For simplicity, let's assume we receive the list of uploaded file paths.
-    # Ideally, define a proper schema.
-    files: List[PhotoCompleteRequest], # Reusing this to pass filename/content_type, but we might need storage_path.
-    # Let's make a quick schema or reuse `PresignedUrlResponse` (it has filename & storage_path).
-    # Using `List[PresignedUrlResponse]` as input body.
-    uploaded_files: List[dict], # {filename: str, storage_path: str}
+    # files: List[PhotoUploadRequest], # Reusing this to pass filename/content_type, but we might need storage_path.
+    uploaded_files: List[PhotoCompleteRequest],  # {filename: str, storage_path: str}
     db: AsyncSession = Depends(get_db),
 ):
     # Note: uploaded_files should ideally be a Pydantic model list. 
