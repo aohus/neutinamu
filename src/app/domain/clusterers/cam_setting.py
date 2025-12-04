@@ -1,7 +1,7 @@
 import logging
 from typing import List
 
-from app.domain.clusterers.base_clusterer import Clusterer
+from app.domain.clusterers.base import Clusterer
 from app.models.photometa import PhotoMeta
 
 logger = logging.getLogger(__name__)

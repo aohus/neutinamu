@@ -189,3 +189,4 @@ assets/
 logs/
 .DS_Store
 versions/
+.env.*

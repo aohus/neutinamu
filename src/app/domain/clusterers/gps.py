@@ -4,7 +4,7 @@ from collections import Counter
 from typing import List, Optional, Tuple
 
 import numpy as np
-from app.domain.clusterers.base_clusterer import Clusterer
+from app.domain.clusterers.base import Clusterer
 from app.models.photometa import PhotoMeta
 from pyproj import Geod
 from sklearn.cluster import DBSCAN, OPTICS
@@ -18,6 +18,7 @@ try:
 except ImportError:
     HAS_HDBSCAN = False
     logger.warning("HDBSCAN not found. Falling back to OPTICS/DBSCAN.")
+
 
 class GPSCluster(Clusterer):
     def __init__(self):
