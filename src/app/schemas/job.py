@@ -31,6 +31,7 @@ class PhotoResponse(BaseModel):
     id: str
     original_filename: str
     storage_path: str
+    url: Optional[str] = None
     thumbnail_path: Optional[str] = None
     cluster_id: Optional[str] = None
     order_index: Optional[int] = None

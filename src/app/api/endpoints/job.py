@@ -7,6 +7,7 @@ from app.models.cluster import Cluster
 from app.models.job import ExportJob, Job, JobStatus
 from app.models.photo import Photo
 from app.models.user import User
+from app.domain.storage.factory import get_storage_client
 from app.schemas.enum import ExportStatus, JobStatus
 from app.schemas.job import (
     ExportStatusResponse,
@@ -116,6 +117,15 @@ async def get_job_details(
     if not job:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # Populate URLs for photos
+    storage = get_storage_client()
+    for photo in job.photos:
+        photo.url = storage.get_url(photo.storage_path)
+    
+    for cluster in job.clusters:
+        for photo in cluster.photos:
+            photo.url = storage.get_url(photo.storage_path)
 
     return job
 

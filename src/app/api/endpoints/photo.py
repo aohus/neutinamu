@@ -6,6 +6,7 @@ from app.services.cluster import ClusterService
 from app.services.photo import PhotoService
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.domain.storage.factory import get_storage_client # Import this
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -18,12 +19,14 @@ async def list_photos(
 ):
     service = PhotoService(db)
     photos = await service.list_photos(job_id=job_id)
+    storage = get_storage_client() # Get storage client
     return [PhotoResponse(id=photo.id, 
                           job_id=photo.job_id, 
                           order_index=photo.order_index,
                           cluster_id=photo.cluster_id, 
                           storage_path=photo.storage_path, 
-                          original_filename=photo.original_filename
+                          original_filename=photo.original_filename,
+                          url=storage.get_url(photo.storage_path) # Populate URL
                           ) for photo in photos]
 
 @router.post("/photos/{photo_id}/move", status_code=status.HTTP_204_NO_CONTENT)

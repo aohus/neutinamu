@@ -37,10 +37,6 @@ class JobService:
                                        .where(Job.user_id == user.user_id)
                                        .options(selectinload(Job.export_job.and_(ExportJob.finished_at.is_(None)))))
         jobs = result.scalars().all()
-        
-        if not jobs:
-            logger.warning(f"No jobs found for user: {user.user_id}")
-            raise HTTPException(status_code=404, detail="Job not found")
         logger.info(f"Found {len(jobs)} jobs for user: {user.user_id}")
         return jobs
 
