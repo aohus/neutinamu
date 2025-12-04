@@ -46,7 +46,6 @@ jobs:
             GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}
             CLUSTER_SERVICE_URL=${{ secrets.CLUSTER_SERVICE_URL }}
             ALLOWED_ORIGINS="*"
-            VITE_API_BASE_URL=http://prod-backend:8000/api
             EOF
 
             # 5. GCS Key 파일 생성 (root에 생성 후 backend 컨테이너에 마운트)

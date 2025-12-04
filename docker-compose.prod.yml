@@ -60,8 +60,6 @@ services:
       dockerfile: Dockerfile
     container_name: prod-web
     restart: always
-    environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
     ports:
       - "80:80"
     depends_on:
