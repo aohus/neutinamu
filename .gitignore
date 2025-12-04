@@ -188,6 +188,5 @@ assets/
 .experiment
 logs/
 .DS_Store
-versions/
 .env*
 .cred*
