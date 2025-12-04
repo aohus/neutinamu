@@ -3,7 +3,6 @@ import io
 import logging
 import os
 
-from PIL import Image
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
 from app.domain.cluster_background import run_pipeline_task
@@ -22,6 +21,7 @@ from app.schemas.photo import (
     PresignedUrlResponse,
 )
 from fastapi import BackgroundTasks, File, HTTPException, UploadFile
+from PIL import Image
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -39,7 +39,7 @@ def generate_thumbnail(image_data: bytes) -> bytes:
     try:
         with Image.open(io.BytesIO(image_data)) as img:
             # Handle orientation if needed, but basic thumbnail is fine
-            img.thumbnail((300, 300)) 
+            img.thumbnail((600, 400)) 
             if img.mode != 'RGB':
                 img = img.convert('RGB')
             output = io.BytesIO()
