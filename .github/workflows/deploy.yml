@@ -54,7 +54,11 @@ jobs:
             cp backend/docker-compose.prod.yml . 
 
             # 7. Docker Compose 재시작 --build 옵션으로 변경된 코드를 기반으로 이미지를 새로 빌드합니다.
+            # BuildKit 활성화로 빌드 속도 및 캐시 효율 향상
+            export COMPOSE_DOCKER_CLI_BUILD=1
+            export DOCKER_BUILDKIT=1
             docker compose -f docker-compose.prod.yml up -d --build
 
             # 8. 불필요한 이미지 정리 (용량 확보)
+            # 주의: 빌드 캐시를 유지하기 위해 'image prune'만 사용하고 'builder prune'은 하지 않음
             docker image prune -f

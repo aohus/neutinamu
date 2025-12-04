@@ -43,6 +43,7 @@ services:
         condition: service_healthy
     volumes:
       - ./src:/app
+      - ./assets:/app/assets
       - backend_logs:/app/logs
     networks:
       - report-network

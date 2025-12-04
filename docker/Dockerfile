@@ -32,12 +32,12 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Copy application code
-COPY ./src .
+# Create non-root user first
+RUN useradd -m -u 1000 appuser
 
-# Create non-root user
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app
+# Copy application code with ownership
+COPY --chown=appuser:appuser ./src .
+
 USER appuser
 
 # Expose port
