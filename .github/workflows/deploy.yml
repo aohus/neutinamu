@@ -45,6 +45,7 @@ jobs:
             STORAGE_TYPE=${{ secrets.STORAGE_TYPE }}
             GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}
             CLUSTER_SERVICE_URL=${{ secrets.CLUSTER_SERVICE_URL }}
+            ALLOWED_ORIGINS="*"
             EOF
 
             # 5. GCS Key 파일 생성 (root에 생성 후 backend 컨테이너에 마운트)
