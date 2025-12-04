@@ -14,6 +14,7 @@ jobs:
           host: ${{ secrets.GCP_VM_HOST }}
           username: ${{ secrets.GCP_VM_USERNAME }}
           key: ${{ secrets.GCP_VM_SSH_KEY }}
+          command_timeout: 1800 # 30 minutes
           script: |
             # 1. 작업 디렉토리 생성 및 이동
             mkdir -p snap-to-report
