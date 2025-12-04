@@ -45,6 +45,8 @@ services:
         condition: service_healthy
     networks:
       - app-network
+    ports:
+      - "8000:8000"
     command: >
       sh -c "
         alembic upgrade head &&
