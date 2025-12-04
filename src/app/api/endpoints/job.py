@@ -111,7 +111,7 @@ async def get_job_details(
         .where(Job.id == job_id)
         .options(
             selectinload(Job.photos),
-            selectinload(Job.clusters).selectinload(Cluster.photos),
+            selectinload(Job.clusters).selectinload(Cluster.photos_(Photo.deleted_at.is_(None))),
             selectinload(Job.export_job)
         )
     )
