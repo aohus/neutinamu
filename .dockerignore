@@ -1,0 +1,47 @@
+# Ignore Git related files
+.git
+.github
+.gitignore
+
+# Ignore IDE/OS specific files
+.DS_Store
+*.swp
+*.bak
+
+# Ignore environment files
+.env
+.env.prod
+.cred_gcs.json # Sensitive credentials, should not be in image
+
+# Ignore Python specific files and directories
+__pycache__
+*.pyc
+venv/
+.venv/
+.pytest_cache/
+.mypy_cache/
+
+# Ignore Docker related files that are not part of the build context
+docker-compose*.yml
+Dockerfile
+docker/
+
+# Ignore documentation and logs
+*.md
+docs/
+*.log
+
+# Ignore data/assets that are usually mounted or created at runtime
+# Adjust if your application needs these at build time
+assets/
+logs/
+
+# Test files and configurations (should not be in production image)
+# If your tests are within src/, refine this.
+# Assuming dev/test requirements are handled separately or not included in final image.
+pytest
+pytest-asyncio
+black
+isort
+flake8
+

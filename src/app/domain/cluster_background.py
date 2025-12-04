@@ -171,7 +171,7 @@ async def _create_clusters_from_result(
             photo.order_index = order_index
             photo.meta_lat = photo_obj.lat
             photo.meta_lon = photo_obj.lon
-            photo.meta_timestamp = datetime.fromtimestamp(photo_obj.timestamp)
+            photo.meta_timestamp = datetime.fromtimestamp(photo_obj.timestamp) if photo_obj.timestamp else None
             updated_photos.append(photo)
         
         cluster_job.finished_at = datetime.now()

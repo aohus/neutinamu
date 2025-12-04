@@ -7,12 +7,11 @@ from app.core.config import JobConfig
 from app.domain.clusterers.base import Clusterer
 from app.domain.clusterers.gps import GPSCluster
 from app.domain.metadata_extractor import MetadataExtractor
-from app.domain.output_generator import OutputGenerator
-from app.domain.storage.local import LocalStorageService
 
 # if TYPE_CHECKING:
 #     from app.domain.storage.base import StorageService
 from app.domain.storage.base import StorageService
+from app.domain.storage.local import LocalStorageService
 from app.models.photo import Photo
 from app.models.photometa import PhotoMeta
 

@@ -12,11 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 class MetadataExtractor:
-    # def __init__(self, executor: ThreadPoolExecutor, cache_path: None = str, is_cache: bool = False):
-    #     self.executor = executor
-    #     self.cache_path = cache_path
-    #     self.is_cache = is_cache
-
     async def extract(self, image_path: str) -> PhotoMeta:
         """Asynchronously extracts metadata from an image file or URL."""
         exif = None
@@ -132,8 +127,10 @@ class MetadataExtractor:
                 microseconds = 0
         
         # Timezone
+        # Default to KST (Korea Standard Time) if no offset is provided
         offset_bytes = exif_exif.get(piexif.ExifIFD.OffsetTimeOriginal)
-        tz = timezone.utc
+        tz = timezone(timedelta(hours=9))
+        
         if offset_bytes:
             try:
                 offset_str = offset_bytes.decode()
@@ -142,7 +139,7 @@ class MetadataExtractor:
                 m = int(offset_str[4:6])
                 tz = timezone(sign * timedelta(hours=h, minutes=m))
             except (UnicodeDecodeError, ValueError):
-                pass # Fallback to UTC
+                pass 
 
         dt = base_dt.replace(microsecond=microseconds, tzinfo=tz)
         return dt.timestamp()
@@ -163,22 +160,15 @@ class MetadataExtractor:
                         try:
                             ref = ref.decode().upper()
                         except:
-                            pass # Keep as bytes if decode fails, though unlikely for N/S/E/W
+                            pass # Keep as bytes if decode fails
                     if isinstance(ref, str):
                         ref = ref.upper()
                 
-                # Check for N/E (Bytes or String)
                 if ref in [b"N", "N", b"E", "E"]:
                     return result
                 elif ref in [b"S", "S", b"W", "W"]:
                     return -result
                 else:
-                    # Default to positive if unknown, or handle as error. 
-                    # Existing logic returned positive for N/E and negative otherwise, 
-                    # but let's stick to explicit checks for safety.
-                    # Fallback to previous behavior: if not N/E, assume negative? 
-                    # No, standard says refs are mandatory.
-                    # Let's stick to strict check.
                     return result if ref in [b"N", "N", b"E", "E"] else -result
 
             except (TypeError, ValueError, ZeroDivisionError, IndexError):
@@ -187,6 +177,10 @@ class MetadataExtractor:
         lat = convert_coord(gps.get(piexif.GPSIFD.GPSLatitude), gps.get(piexif.GPSIFD.GPSLatitudeRef))
         lon = convert_coord(gps.get(piexif.GPSIFD.GPSLongitude), gps.get(piexif.GPSIFD.GPSLongitudeRef))
         
+        # Filter out invalid (0, 0) coordinates which often indicate GPS init failure
+        if lat == 0.0 and lon == 0.0:
+            return None, None, None, None
+
         alt = None
         if piexif.GPSIFD.GPSAltitude in gps:
             alt_val = gps[piexif.GPSIFD.GPSAltitude]
@@ -200,5 +194,25 @@ class MetadataExtractor:
                     alt = -alt
 
         direction = self._rational_to_float(gps.get(piexif.GPSIFD.GPSImgDirection))
+        
+        # Correct direction if it refers to Magnetic North
+        # Korean Average Magnetic Declination is approx 8.5 degrees West (as of 2020s)
+        # True North = Magnetic North - 8.5
+        if direction is not None:
+            dir_ref = gps.get(piexif.GPSIFD.GPSImgDirectionRef)
+            if dir_ref:
+                if isinstance(dir_ref, bytes):
+                    try:
+                        dir_ref = dir_ref.decode().upper()
+                    except:
+                        pass
+                elif isinstance(dir_ref, str):
+                    dir_ref = dir_ref.upper()
+
+                # 'M' stands for Magnetic North
+                if dir_ref == 'M':
+                    direction -= 8.5
+                    if direction < 0:
+                        direction += 360.0
 
         return lat, lon, alt, direction
