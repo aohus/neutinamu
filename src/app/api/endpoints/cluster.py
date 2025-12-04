@@ -2,6 +2,7 @@ import logging
 from typing import List
 
 from app.db.database import get_db
+from app.domain.storage.factory import get_storage_client
 from app.schemas.cluster import (
     ClusterCreateRequest,
     ClusterResponse,
@@ -23,6 +24,7 @@ async def list_clusters(
 ):
     service = ClusterService(db)
     clusters = await service.list_clusters(job_id=job_id)
+    storage = get_storage_client()
     return [
         ClusterResponse(
             id=cluster.id,
@@ -35,8 +37,8 @@ async def list_clusters(
                                   cluster_id=photo.cluster_id, 
                                   storage_path=photo.storage_path, 
                                   original_filename=photo.original_filename,
-                                  url=photo.url,
-                                  thumbnail_path=photo.thumbnail_path
+                                  url=storage.get_url(photo.storage_path),
+                                  thumbnail_path=storage.get_url(photo.thumbnail_path) if photo.thumbnail_path else None
                                   ) for photo in cluster.photos]
         ) for cluster in clusters
     ]
@@ -70,6 +72,7 @@ async def update_cluster(
     new_name = payload.new_name if payload.new_name else None
     order_index = payload.order_index if payload.order_index else 0
     cluster = await service.update_cluster(job_id="", cluster_id=cluster_id, new_name=new_name, order_index=order_index)
+    storage = get_storage_client()
     return ClusterResponse(
         id=cluster.id,
         job_id=cluster.job_id,
@@ -81,8 +84,8 @@ async def update_cluster(
                               cluster_id=photo.cluster_id, 
                               storage_path=photo.storage_path, 
                               original_filename=photo.original_filename,
-                              url=photo.url,
-                              thumbnail_path=photo.thumbnail_path
+                              url=storage.get_url(photo.storage_path),
+                              thumbnail_path=storage.get_url(photo.thumbnail_path) if photo.thumbnail_path else None
                               ) for photo in cluster.photos])
 
 @router.delete("/clusters/{cluster_id}", status_code=status.HTTP_204_NO_CONTENT)
