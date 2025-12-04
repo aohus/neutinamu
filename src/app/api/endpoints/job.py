@@ -171,7 +171,7 @@ async def generate_upload_urls(
 async def complete_upload(
     job_id: str,
     # files: List[PhotoUploadRequest], # Reusing this to pass filename/content_type, but we might need storage_path.
-    uploaded_files: List[PhotoCompleteRequest],  # {filename: str, storage_path: str}
+    uploaded_files: List[dict],  # {filename: str, storage_path: str}
     db: AsyncSession = Depends(get_db),
 ):
     # Note: uploaded_files should ideally be a Pydantic model list. 
