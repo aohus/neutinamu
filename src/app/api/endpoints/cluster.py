@@ -34,7 +34,9 @@ async def list_clusters(
                                   order_index=photo.order_index, 
                                   cluster_id=photo.cluster_id, 
                                   storage_path=photo.storage_path, 
-                                  original_filename=photo.original_filename
+                                  original_filename=photo.original_filename,
+                                  url=photo.url,
+                                  thumbnail_path=photo.thumbnail_path
                                   ) for photo in cluster.photos]
         ) for cluster in clusters
     ]
@@ -78,7 +80,9 @@ async def update_cluster(
                               order_index=photo.order_index, 
                               cluster_id=photo.cluster_id, 
                               storage_path=photo.storage_path, 
-                              original_filename=photo.original_filename
+                              original_filename=photo.original_filename,
+                              url=photo.url,
+                              thumbnail_path=photo.thumbnail_path
                               ) for photo in cluster.photos])
 
 @router.delete("/clusters/{cluster_id}", status_code=status.HTTP_204_NO_CONTENT)
