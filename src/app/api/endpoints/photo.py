@@ -26,7 +26,8 @@ async def list_photos(
                           cluster_id=photo.cluster_id, 
                           storage_path=photo.storage_path, 
                           original_filename=photo.original_filename,
-                          url=storage.get_url(photo.storage_path) # Populate URL
+                          url=storage.get_url(photo.storage_path), # Populate URL
+                          thumbnail_path=storage.get_url(photo.thumbnail_path) if photo.thumbnail_path else None
                           ) for photo in photos]
 
 @router.post("/photos/{photo_id}/move", status_code=status.HTTP_204_NO_CONTENT)

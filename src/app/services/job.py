@@ -1,6 +1,9 @@
 import asyncio
+import io
 import logging
+import os
 
+from PIL import Image
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
 from app.domain.cluster_background import run_pipeline_task
@@ -25,6 +28,26 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger(__name__)
+
+
+class AsyncBytesIO(io.BytesIO):
+    async def read(self, *args, **kwargs):
+        return super().read(*args, **kwargs)
+
+
+def generate_thumbnail(image_data: bytes) -> bytes:
+    try:
+        with Image.open(io.BytesIO(image_data)) as img:
+            # Handle orientation if needed, but basic thumbnail is fine
+            img.thumbnail((300, 300)) 
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            output = io.BytesIO()
+            img.save(output, format="JPEG", quality=85)
+            return output.getvalue()
+    except Exception as e:
+        logger.warning(f"Failed to generate thumbnail: {e}")
+        return None
 
 
 class JobService:
@@ -169,16 +192,30 @@ class JobService:
                 # GCS/S3 storage path: user_id/job_id/filename
                 target_path = f"{job.user_id}/{job.id}/{file.filename}"
 
-            # Pass the file's content (file.file) and content_type
-            saved_path = await storage.save_file(file, target_path, file.content_type)
+            # Read file content to memory
+            content = await file.read()
             
+            # Save original file
+            # Wrap content in AsyncBytesIO because storage.save_file expects async read
+            saved_path = await storage.save_file(AsyncBytesIO(content), target_path, file.content_type)
+            
+            # Generate and save thumbnail
+            thumb_content = generate_thumbnail(content)
+            thumbnail_path = None
+            if thumb_content:
+                # Insert _thumb before extension
+                path_parts = os.path.splitext(target_path)
+                thumb_target_path = f"{path_parts[0]}_thumb.jpg" # Force jpg for thumbnail
+                
+                thumbnail_path = await storage.save_file(AsyncBytesIO(thumb_content), thumb_target_path, "image/jpeg")
+
             photo = Photo(
                 job_id=job_id,
                 original_filename=file.filename,
-                storage_path=saved_path, # saved_path is already the correct path from storage service
-                thumbnail_path=saved_path, # assuming thumbnail will be derived from this path
+                storage_path=saved_path, 
+                thumbnail_path=thumbnail_path, 
             )
-            logger.debug(f"Saved {file.filename} to {saved_path}")
+            logger.debug(f"Saved {file.filename} to {saved_path}, thumbnail: {thumbnail_path}")
             return photo
 
         # Process files concurrently

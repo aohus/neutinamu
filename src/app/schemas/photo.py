@@ -14,6 +14,8 @@ class PhotoResponse(BaseModel):
     cluster_id: Optional[str] = None
     storage_path: str
     original_filename: str
+    url: Optional[str] = None
+    thumbnail_path: Optional[str] = None
 
 
 class PhotoUploadRequest(BaseModel):

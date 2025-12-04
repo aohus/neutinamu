@@ -127,10 +127,12 @@ async def get_job_details(
     storage = get_storage_client()
     for photo in job.photos:
         photo.url = storage.get_url(photo.storage_path)
+        photo.thumbnail_path = storage.get_url(photo.thumbnail_path) if photo.thumbnail_path else None
     
     for cluster in job.clusters:
         for photo in cluster.photos:
             photo.url = storage.get_url(photo.storage_path)
+            photo.thumbnail_path = storage.get_url(photo.thumbnail_path) if photo.thumbnail_path else None
 
     return job
 
