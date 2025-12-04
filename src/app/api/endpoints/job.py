@@ -3,11 +3,11 @@ from typing import List
 
 from app.api.endpoints.auth import get_current_user
 from app.db.database import get_db
+from app.domain.storage.factory import get_storage_client
 from app.models.cluster import Cluster
 from app.models.job import ExportJob, Job, JobStatus
 from app.models.photo import Photo
 from app.models.user import User
-from app.domain.storage.factory import get_storage_client
 from app.schemas.enum import ExportStatus, JobStatus
 from app.schemas.job import (
     ExportStatusResponse,
@@ -18,7 +18,11 @@ from app.schemas.job import (
     JobStatusResponse,
     PhotoUploadResponse,
 )
-from app.schemas.photo import BatchPresignedUrlResponse, PhotoUploadRequest
+from app.schemas.photo import (
+    BatchPresignedUrlResponse,
+    PhotoCompleteRequest,
+    PhotoUploadRequest,
+)
 from app.services.job import JobService
 from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, status
 from sqlalchemy import select
@@ -170,7 +174,7 @@ async def complete_upload(
     # We can reuse BatchPresignedUrlResponse structure or make a new request schema.
     # For simplicity, let's assume we receive the list of uploaded file paths.
     # Ideally, define a proper schema.
-    files: List[PhotoUploadRequest], # Reusing this to pass filename/content_type, but we might need storage_path.
+    files: List[PhotoCompleteRequest], # Reusing this to pass filename/content_type, but we might need storage_path.
     # Let's make a quick schema or reuse `PresignedUrlResponse` (it has filename & storage_path).
     # Using `List[PresignedUrlResponse]` as input body.
     uploaded_files: List[dict], # {filename: str, storage_path: str}

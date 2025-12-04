@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -19,6 +19,11 @@ class PhotoResponse(BaseModel):
 class PhotoUploadRequest(BaseModel):
     filename: str
     content_type: str
+
+
+class PhotoCompleteRequest(BaseModel):
+    filename: str
+    storage_path: str
 
 
 class PresignedUrlResponse(BaseModel):
