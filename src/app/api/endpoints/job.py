@@ -27,7 +27,7 @@ from app.services.job import JobService
 from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, with_loader_criteria
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -111,8 +111,9 @@ async def get_job_details(
         .where(Job.id == job_id)
         .options(
             selectinload(Job.photos),
-            selectinload(Job.clusters).selectinload(Cluster.photos_(Photo.deleted_at.is_(None))),
-            selectinload(Job.export_job)
+            selectinload(Job.clusters).selectinload(Cluster.photos),
+            selectinload(Job.export_job),
+            with_loader_criteria(Photo, Photo.deleted_at.is_(None)) 
         )
     )
     result = await db.execute(query)
