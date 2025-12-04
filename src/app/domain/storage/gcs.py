@@ -50,8 +50,9 @@ class GCSStorageService(StorageService):
         return dest_path
         
     def get_url(self, path: str) -> str:
-        # 공개 버킷인 경우 URL 반환, 비공개인 경우 Signed URL 생성 필요
-        # 여기서는 단순히 media link 반환 (프론트에서 접근 가능해야 함)
+        # If the path is already a full URL, return it as is to prevent duplication.
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
         return f"https://storage.googleapis.com/{self.bucket_name}/{path}"
 
     def generate_upload_url(self, path: str, content_type: str = None) -> Optional[str]:
