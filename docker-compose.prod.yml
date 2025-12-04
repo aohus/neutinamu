@@ -59,8 +59,6 @@ services:
       context: ./frontend # 서버의 frontend 폴더 참조
       dockerfile: Dockerfile
     container_name: prod-web
-    environment:
-      VITE_API_BASE_URL: http://prod-backend:8000/api
     restart: always
     ports:
       - "80:80"
