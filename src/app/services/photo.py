@@ -41,14 +41,14 @@ class PhotoService:
         # Find photo first to get job_id
         result = await self.db.execute(select(Photo).where(Photo.id == photo_id))
         photo = result.scalars().first()
-        cluster_id = photo.cluster_id
-        logger.info(f"Moving photo {photo_id} from cluster {cluster_id} to {target_cluster_id}")
+        source_cluster_id = photo.cluster_id
+        logger.info(f"Moving photo {photo_id} from cluster {source_cluster_id} to {target_cluster_id}")
         if not photo:
             logger.error(f"Move failed: Photo with id {photo_id} not found.")
             raise HTTPException(status_code=404, detail="Photo not found")
 
-        if photo.cluster_id != cluster_id:
-            logger.error(f"Move failed: Photo {photo_id} does not belong to source cluster {cluster_id}.")
+        if photo.cluster_id != source_cluster_id:
+            logger.error(f"Move failed: Photo {photo_id} does not belong to source cluster {source_cluster_id}.")
             raise HTTPException(status_code=400, detail="Photo does not belong to the source cluster")
         
         try:
@@ -67,9 +67,9 @@ class PhotoService:
             # TODO: Consider rolling back file move if DB update fails
             raise HTTPException(status_code=500, detail=str(e))
 
-        result = await self.db.execute(select(Photo).where(Photo.cluster_id == cluster_id))
+        result = await self.db.execute(select(Photo).where(Photo.cluster_id == source_cluster_id))
         if not result.scalars().first():
-            await cluster_service.delete_cluster(job_id='', cluster_id=cluster_id)
+            await cluster_service.delete_cluster(job_id=photo.job_id, cluster_id=source_cluster_id)
 
     # async def move_photo(
     #     self,
