@@ -2,7 +2,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Optional
 
 import aiofiles
 import aioshutil
@@ -79,3 +79,7 @@ class LocalStorageService(StorageService):
         url = f"{settings.MEDIA_URL}/{path}".replace("//", "/")
         logger.debug(f"Generating URL for local path: {path} -> {url}")
         return url
+
+    def generate_upload_url(self, path: str, content_type: str = None) -> Optional[str]:
+        """Local storage does not support pre-signed URLs."""
+        return None

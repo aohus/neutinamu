@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 
 from pydantic import BaseModel
 
@@ -14,3 +14,19 @@ class PhotoResponse(BaseModel):
     cluster_id: Optional[str] = None
     storage_path: str
     original_filename: str
+
+
+class PhotoUploadRequest(BaseModel):
+    filename: str
+    content_type: str
+
+
+class PresignedUrlResponse(BaseModel):
+    filename: str
+    upload_url: Optional[str]
+    storage_path: str
+    
+
+class BatchPresignedUrlResponse(BaseModel):
+    strategy: str  # "direct" or "proxy"
+    urls: List[PresignedUrlResponse]

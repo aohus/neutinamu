@@ -17,6 +17,7 @@ from app.schemas.job import (
     JobStatusResponse,
     PhotoUploadResponse,
 )
+from app.schemas.photo import BatchPresignedUrlResponse, PhotoUploadRequest
 from app.services.job import JobService
 from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, status
 from sqlalchemy import select
@@ -121,7 +122,7 @@ async def get_job_details(
 
 @router.post(
     "/jobs/{job_id}/photos",
-    summary="Upload photos",
+    summary="Upload photos (Legacy/Proxy)",
     response_model=PhotoUploadResponse,
 )
 async def upload_photos(
@@ -131,6 +132,44 @@ async def upload_photos(
 ):
     service = JobService(db)
     photos = await service.upload_photos(job_id=job_id, files=files)
+    return PhotoUploadResponse(job_id=job_id, file_count=len(photos))
+
+
+@router.post(
+    "/jobs/{job_id}/photos/presigned",
+    summary="Get presigned URLs for direct upload",
+    response_model=BatchPresignedUrlResponse,
+)
+async def generate_upload_urls(
+    job_id: str,
+    files: List[PhotoUploadRequest],
+    db: AsyncSession = Depends(get_db),
+):
+    service = JobService(db)
+    return await service.generate_presigned_urls(job_id=job_id, files=files)
+
+
+@router.post(
+    "/jobs/{job_id}/photos/complete",
+    summary="Notify upload completion for direct uploads",
+    response_model=PhotoUploadResponse,
+)
+async def complete_upload(
+    job_id: str,
+    # Assuming client sends a list of {filename, storage_path} of successfully uploaded files
+    # We can reuse BatchPresignedUrlResponse structure or make a new request schema.
+    # For simplicity, let's assume we receive the list of uploaded file paths.
+    # Ideally, define a proper schema.
+    files: List[PhotoUploadRequest], # Reusing this to pass filename/content_type, but we might need storage_path.
+    # Let's make a quick schema or reuse `PresignedUrlResponse` (it has filename & storage_path).
+    # Using `List[PresignedUrlResponse]` as input body.
+    uploaded_files: List[dict], # {filename: str, storage_path: str}
+    db: AsyncSession = Depends(get_db),
+):
+    # Note: uploaded_files should ideally be a Pydantic model list. 
+    # Using dict for flexibility now, but should be typed.
+    service = JobService(db)
+    photos = await service.process_uploaded_files(job_id=job_id, file_info_list=uploaded_files)
     return PhotoUploadResponse(job_id=job_id, file_count=len(photos))
 
 

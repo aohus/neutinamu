@@ -1,5 +1,6 @@
 import logging
-from typing import BinaryIO
+from typing import BinaryIO, Optional
+from datetime import timedelta
 
 from app.core.config import settings
 from google.cloud import storage
@@ -52,3 +53,17 @@ class GCSStorageService(StorageService):
         # 공개 버킷인 경우 URL 반환, 비공개인 경우 Signed URL 생성 필요
         # 여기서는 단순히 media link 반환 (프론트에서 접근 가능해야 함)
         return f"https://storage.googleapis.com/{self.bucket_name}/{path}"
+
+    def generate_upload_url(self, path: str, content_type: str = None) -> Optional[str]:
+        """Generates a v4 signed URL for uploading a blob using HTTP PUT."""
+        blob = self.bucket.blob(path)
+        
+        url = blob.generate_signed_url(
+            version="v4",
+            # This URL is valid for 15 minutes
+            expiration=timedelta(minutes=15),
+            # Allow PUT requests using this URL.
+            method="PUT",
+            content_type=content_type,
+        )
+        return url

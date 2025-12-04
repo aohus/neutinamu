@@ -13,6 +13,11 @@ from app.models.cluster import Cluster
 from app.models.job import ExportJob, ExportStatus, Job, JobStatus
 from app.models.photo import Photo
 from app.models.user import User
+from app.schemas.photo import (
+    BatchPresignedUrlResponse,
+    PhotoUploadRequest,
+    PresignedUrlResponse,
+)
 from fastapi import BackgroundTasks, File, HTTPException, UploadFile
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,6 +75,76 @@ class JobService:
         
         logger.debug(f"Job {job_id} found with status {job.status}")
         return job
+
+    async def generate_presigned_urls(
+        self, job_id: str, files: list[PhotoUploadRequest]
+    ) -> BatchPresignedUrlResponse:
+        """
+        Generate pre-signed URLs for direct upload.
+        If storage is local, returns None for URLs, indicating proxy upload should be used.
+        """
+        result = await self.db.execute(select(Job).where(Job.id == job_id))
+        job = result.scalars().first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        storage = get_storage_client()
+        response_urls = []
+        
+        strategy = "proxy" if settings.STORAGE_TYPE == "local" else "direct"
+
+        for file_req in files:
+            # Define path logic consistent with upload_photos
+            if settings.STORAGE_TYPE == "local":
+                target_path = f"{job.id}/{file_req.filename}"
+            else:
+                target_path = f"{job.user_id}/{job.id}/{file_req.filename}"
+
+            upload_url = storage.generate_upload_url(target_path, content_type=file_req.content_type)
+            
+            # If storage service returns None (e.g. Local), we fallback to proxy strategy implicitly
+            # But here we set strategy based on config.
+            
+            response_urls.append(
+                PresignedUrlResponse(
+                    filename=file_req.filename,
+                    upload_url=upload_url,
+                    storage_path=target_path
+                )
+            )
+
+        return BatchPresignedUrlResponse(strategy=strategy, urls=response_urls)
+
+    async def process_uploaded_files(
+        self, job_id: str, file_info_list: list[dict]
+    ) -> list[Photo]:
+        """
+        Register files that have been uploaded directly to storage.
+        file_info_list: list of dicts with 'filename' and 'storage_path'
+        """
+        result = await self.db.execute(select(Job).where(Job.id == job_id))
+        job = result.scalars().first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        photos = []
+        for info in file_info_list:
+            photo = Photo(
+                job_id=job_id,
+                original_filename=info['filename'],
+                storage_path=info['storage_path'],
+                # Thumbnail generation or metadata extraction should be triggered here or later
+                thumbnail_path=info['storage_path'] # Placeholder
+            )
+            photos.append(photo)
+        
+        self.db.add_all(photos)
+        await self.db.commit()
+        
+        # Trigger metadata extraction async task here if needed
+        
+        logger.info(f"Registered {len(photos)} uploaded photos for job {job_id}")
+        return photos
 
     async def upload_photos(
         self,

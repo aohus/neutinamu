@@ -58,3 +58,17 @@ class StorageService(ABC):
             The public or internal URL.
         """
         pass
+
+    @abstractmethod
+    def generate_upload_url(self, path: str, content_type: str = None) -> Optional[str]:
+        """
+        Generate a pre-signed URL for direct client-side upload.
+        
+        Args:
+            path: The destination path.
+            content_type: MIME type of the file.
+            
+        Returns:
+            The pre-signed URL string, or None if not supported (e.g. local storage).
+        """
+        pass
