@@ -53,6 +53,10 @@ class PhotoService:
         
         try:
             logger.debug(f"Moving photo file '{photo.original_filename}' from '{photo.cluster_id}' to '{target_cluster_id}'")
+            if target_cluster_id == 'reserve':
+                cluster = await cluster_service.create_cluster(job_id=photo.job_id, order_index=-1, name='reserve')
+                target_cluster_id = cluster.id
+                
             # Update DB
             photo.cluster_id = target_cluster_id
             await self.db.commit()

@@ -1,5 +1,6 @@
 import logging
 import sys
+import os # Added os import
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -58,11 +59,18 @@ app.add_middleware(
 
 app.include_router(api_router, prefix="/api")
 
-app.mount(
-    "/api/uploads",              
-    StaticFiles(directory=MEDIA_ROOT),
-    name="uploads",
-)
+# Conditionally mount StaticFiles based on STORAGE_TYPE
+if settings.STORAGE_TYPE == "local":
+    # Ensure MEDIA_ROOT exists for local storage
+    os.makedirs(MEDIA_ROOT, exist_ok=True)
+    app.mount(
+        "/api/uploads",              
+        StaticFiles(directory=MEDIA_ROOT),
+        name="uploads",
+    )
+else:
+    logger.info(f"STORAGE_TYPE is {settings.STORAGE_TYPE}, StaticFiles for /api/uploads will not be mounted.")
+
 
 @app.get("/", tags=["Root"])
 async def read_root():
