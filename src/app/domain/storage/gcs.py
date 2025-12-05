@@ -1,6 +1,7 @@
 import logging
-from typing import BinaryIO, Optional
 from datetime import timedelta
+from pathlib import Path
+from typing import BinaryIO, Optional
 
 from app.core.config import settings
 from google.cloud import storage
@@ -68,3 +69,9 @@ class GCSStorageService(StorageService):
             content_type=content_type,
         )
         return url
+
+    async def download_file(self, path: str, destination_local_path: Path):
+        """Downloads a file from GCS to a local path."""
+        blob = self.bucket.blob(path)
+        blob.download_to_filename(str(destination_local_path))
+        logger.info(f"[GCS] Downloaded {path} to {destination_local_path}")
