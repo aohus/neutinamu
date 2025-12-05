@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 class JobRequest(BaseModel):
     title: str
+    contractor_name: Optional[str] = None
+    work_date: Optional[datetime] = None
 
 
 class JobClusterRequest(BaseModel):
@@ -19,6 +21,8 @@ class JobResponse(BaseModel):
     id: str
     title: Optional[str] = None
     status: JobStatus
+    contractor_name: Optional[str] = None
+    work_date: Optional[datetime] = None
     export_status: Optional[ExportStatus] = None
     created_at: datetime
     updated_at: Optional[datetime] = None

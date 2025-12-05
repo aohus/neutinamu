@@ -59,14 +59,21 @@ async def create_job(
 ):
     service = JobService(db)
     logger.info(f"User {current_user.user_id} creating job with title: '{payload.title}'")
-    job = await service.create_job(user=current_user, title=payload.title)
+    job = await service.create_job(
+        user=current_user,
+        title=payload.title,
+        contractor_name=payload.contractor_name,
+        work_date=payload.work_date
+    )
     
     return JobResponse(
         id=job.id, 
         title=job.title, 
         status=job.status, 
         export_status=ExportStatus.PENDING, 
-        created_at=job.created_at
+        created_at=job.created_at,
+        contractor_name=job.contractor_name,
+        work_date=job.work_date
     )
 
 
@@ -229,7 +236,9 @@ async def start_export(
 ):
     service = JobService(db)
     export_job = await service.start_export(job_id=job_id, background_tasks=background_tasks)
-    return ExportStatusResponse(status=export_job.status)
+    return ExportStatusResponse(
+        status=export_job.status
+    )
 
 
 @router.get("/jobs/{job_id}/export/status", response_model=ExportStatusResponse)

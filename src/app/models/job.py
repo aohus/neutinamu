@@ -3,32 +3,12 @@ from datetime import datetime
 from app.db.database import Base
 from app.models.utils import generate_short_id
 from app.schemas.enum import ExportStatus, JobStatus
-from sqlalchemy import Column, DateTime, JSON
+from sqlalchemy import JSON, Column, DateTime
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text, desc
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-
-
-class Job(Base):
-    __tablename__ = "jobs"
-    
-    id = Column(String, primary_key=True, default=lambda: generate_short_id("job"))
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)
-    title = Column(String, nullable=False)
-    status = Column(SqlEnum(JobStatus), default=JobStatus.CREATED)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    
-    user = relationship("User", back_populates="jobs")
-    clusters = relationship("Cluster", back_populates="job", cascade="all, delete-orphan")
-    photos = relationship("Photo", back_populates="job", cascade="all, delete-orphan")
-    cluster_job = relationship("ClusterJob", back_populates="job", cascade="all, delete-orphan")
-    export_job = relationship("ExportJob", back_populates="job", cascade="all, delete-orphan")
-    
-    def __repr__(self) -> str:
-        return f"<Job(id={self.id}, title={self.title})>"
 
 
 class ClusterJob(Base):
@@ -62,3 +42,25 @@ class ExportJob(Base):
     
     def __repr__(self) -> str:
         return f"<ExportJob(id={self.id}, title={self.job.title}), status={self.status}>"
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+    
+    id = Column(String, primary_key=True, default=lambda: generate_short_id("job"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)
+    title = Column(String, nullable=False)
+    status = Column(SqlEnum(JobStatus), default=JobStatus.CREATED)
+    contractor_name = Column(String(255), nullable=True)
+    work_date = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    user = relationship("User", back_populates="jobs")
+    clusters = relationship("Cluster", back_populates="job", cascade="all, delete-orphan")
+    photos = relationship("Photo", back_populates="job", cascade="all, delete-orphan")
+    cluster_job = relationship("ClusterJob", back_populates="job", cascade="all, delete-orphan")
+    export_job = relationship("ExportJob", back_populates="job", cascade="all, delete-orphan", order_by=desc(ExportJob.created_at), uselist=False)
+    
+    def __repr__(self) -> str:
+        return f"<Job(id={self.id}, title={self.title})>"

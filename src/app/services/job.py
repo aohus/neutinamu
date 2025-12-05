@@ -2,7 +2,9 @@ import asyncio
 import io
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
@@ -59,14 +61,14 @@ class JobService:
         logger.info(f"Fetching jobs for user: {user.user_id}")
         result = await self.db.execute(select(Job)
                                        .where(Job.user_id == user.user_id)
-                                       .options(selectinload(Job.export_job.and_(ExportJob.finished_at.is_(None)))))
+                                       .options(selectinload(Job.export_job)))
         jobs = result.scalars().all()
         logger.info(f"Found {len(jobs)} jobs for user: {user.user_id}")
         return jobs
 
-    async def create_job(self, user: User, title: str):
+    async def create_job(self, user: User, title: str, contractor_name: Optional[str] = None, work_date: Optional[datetime] = None):
         logger.info(f"User {user.user_id} creating job with title: '{title}'")
-        job = Job(user_id=user.user_id, title=title)
+        job = Job(user_id=user.user_id, title=title, contractor_name=contractor_name, work_date=work_date)
         self.db.add(job)
         await self.db.commit()
         await self.db.refresh(job)
@@ -355,7 +357,11 @@ class JobService:
         return export_job
     
     async def get_export_job(self, job_id):
-        result = await self.db.execute(select(ExportJob).where(ExportJob.job_id == job_id))
+        result = await self.db.execute(
+            select(ExportJob)
+            .where(ExportJob.job_id == job_id)
+            .order_by(ExportJob.created_at.desc())
+        )
         export_job = result.scalars().first()
         if not export_job:
             raise HTTPException(status_code=404, detail="Export job not found")

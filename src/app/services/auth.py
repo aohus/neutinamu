@@ -34,20 +34,11 @@ class AuthService:
                 detail="Username already registered"
             )
         
-        # Check if email exists
-        result = await self.db.execute(select(User).where(User.email == user_data.email))
-        if result.scalar_one_or_none():
-            logger.warning(f"Registration failed: Email '{user_data.email}' already registered.")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered"
-            )
-        
         # Create new user
         hashed_password = get_password_hash(user_data.password)
         new_user = User(
             username=user_data.username,
-            email=user_data.email,
+            company_name=user_data.company_name,
             password_hash=hashed_password
         )
         

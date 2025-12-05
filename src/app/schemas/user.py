@@ -1,13 +1,14 @@
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, Optional
 from uuid import UUID
+
+from pydantic import BaseModel, Field
 
 
 class UserCreate(BaseModel):
-    username: str = Field(..., min_length=3, max_length=50)
-    email: EmailStr
+    username: str = Field(..., min_length=6, max_length=50)
     password: str = Field(..., min_length=6)
+    company_name: Optional[str] = Field(..., min_length=2, max_length=50)
 
 
 class UserLogin(BaseModel):
@@ -18,7 +19,7 @@ class UserLogin(BaseModel):
 class UserResponse(BaseModel):
     user_id: UUID
     username: str
-    email: str
+    company_name: str
     created_at: datetime
     
     class Config:
