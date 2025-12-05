@@ -1,6 +1,7 @@
 import glob
 import logging
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -97,208 +98,230 @@ async def generate_pdf_for_session(export_job_id: str):
             contractor = getattr(export_job, "contractor_name", "미정")
 
             # --------- PDF 파일 준비 ---------
-            pdf_path = Path("/app/assets") / f"job_{export_job.id}_{int(datetime.now().timestamp())}.pdf"
-            c = canvas.Canvas(str(pdf_path), pagesize=A4)
-            width, height = A4
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp_pdf_path = Path(tmpdir) / f"job_{export_job.id}_{int(datetime.now().timestamp())}.pdf"
+                c = canvas.Canvas(str(tmp_pdf_path), pagesize=A4)
+                width, height = A4
 
-            # 레이아웃 기본 값
-            margin_x = 30
-            margin_top = 30
-            margin_bottom = 30
+                # 레이아웃 기본 값
+                margin_x = 30
+                margin_top = 30
+                margin_bottom = 30
 
-            table_left = margin_x
-            table_right = width - margin_x
-            table_top = height - margin_top
-            table_bottom = margin_bottom
+                table_left = margin_x
+                table_right = width - margin_x
+                table_top = height - margin_top
+                table_bottom = margin_bottom
 
-            first_col_w = 40   # "작업" 세로
-            second_col_w = 60  # "공종 / 전·중·후" 세로
-            header_h = 60      # 상단 제목 행 높이
+                first_col_w = 40   # "작업" 세로
+                second_col_w = 60  # "공종 / 전·중·후" 세로
+                header_h = 60      # 상단 제목 행 높이
 
-            content_height = table_top - table_bottom - header_h
-            row_h = content_height / 3.0  # 전/중/후 3행
+                content_height = table_top - table_bottom - header_h
+                row_h = content_height / 3.0  # 전/중/후 3행
 
-            # --------- Cluster 목록 조회 ---------
-            result = await session.execute(
-                select(Cluster)
-                .where(Cluster.job_id == job_id)
-                .order_by(Cluster.order_index.asc())
-            )
-            clusters = result.scalars().all()
-
-            for cluster in clusters:
-                # 페이지마다 동일한 프레임/표 구조
-
-                # 외곽 테두리
-                c.rect(table_left, table_bottom,
-                       table_right - table_left,
-                       table_top - table_bottom)
-
-                # 세로 선 (열 구분)
-                x_col1 = table_left + first_col_w
-                x_col2 = x_col1 + second_col_w
-                c.line(x_col1, table_bottom, x_col1, table_top)
-                c.line(x_col2, table_bottom, x_col2, table_top)
-
-                # 가로 선 (header, 전/중/후 구분)
-                y_header_bottom = table_top - header_h
-                c.line(table_left, y_header_bottom, table_right, y_header_bottom)  # header 아래
-
-                y_row1_bottom = y_header_bottom - row_h
-                y_row2_bottom = y_row1_bottom - row_h
-                # 전/중/후 행 구분은 두 번째 열부터
-                c.line(x_col1, y_row1_bottom, table_right, y_row1_bottom)
-                c.line(x_col1, y_row2_bottom, table_right, y_row2_bottom)
-
-                # --------- 세로 텍스트(작업 / 공종 / 전·중·후) ---------
-                # "작업" : 첫 번째 열 전체 중앙
-                _draw_vertical_text(
-                    c,
-                    x=table_left + first_col_w / 2.0,
-                    y_bottom=table_bottom,
-                    y_top=table_top,
-                    text="작업",
-                    font_size=14,
+                # --------- Cluster 목록 조회 ---------
+                result = await session.execute(
+                    select(Cluster)
+                    .where(Cluster.job_id == job_id)
+                    .order_by(Cluster.order_index.asc())
                 )
+                clusters = result.scalars().all()
 
-                # "공종" : 두 번째 열의 header 영역 중앙
-                _draw_vertical_text(
-                    c,
-                    x=x_col1 + second_col_w / 2.0,
-                    y_bottom=y_header_bottom,
-                    y_top=table_top,
-                    text="공종",
-                    font_size=14,
-                )
+                for cluster in clusters:
+                    # 페이지마다 동일한 프레임/표 구조
 
-                # "전/중/후" : 두 번째 열의 각 행 중앙
-                row_labels = ["전", "중", "후"]
-                row_bottoms = [y_row1_bottom, y_row2_bottom, table_bottom]
-                row_tops = [y_header_bottom, y_row1_bottom, y_row2_bottom]
-                for label, yb, yt in zip(row_labels, row_bottoms, row_tops):
+                    # 외곽 테두리
+                    c.rect(table_left, table_bottom,
+                           table_right - table_left,
+                           table_top - table_bottom)
+
+                    # 세로 선 (열 구분)
+                    x_col1 = table_left + first_col_w
+                    x_col2 = x_col1 + second_col_w
+                    c.line(x_col1, table_bottom, x_col1, table_top)
+                    c.line(x_col2, table_bottom, x_col2, table_top)
+
+                    # 가로 선 (header, 전/중/후 구분)
+                    y_header_bottom = table_top - header_h
+                    c.line(table_left, y_header_bottom, table_right, y_header_bottom)  # header 아래
+
+                    y_row1_bottom = y_header_bottom - row_h
+                    y_row2_bottom = y_row1_bottom - row_h
+                    # 전/중/후 행 구분은 두 번째 열부터
+                    c.line(x_col1, y_row1_bottom, table_right, y_row1_bottom)
+                    c.line(x_col1, y_row2_bottom, table_right, y_row2_bottom)
+
+                    # --------- 세로 텍스트(작업 / 공종 / 전·중·후) ---------
+                    # "작업" : 첫 번째 열 전체 중앙
                     _draw_vertical_text(
                         c,
-                        x=x_col1 + second_col_w / 2.0,
-                        y_bottom=yb,
-                        y_top=yt,
-                        text=label,
+                        x=table_left + first_col_w / 2.0,
+                        y_bottom=table_bottom,
+                        y_top=table_top,
+                        text="작업",
                         font_size=14,
                     )
 
-                # --------- 상단 제목(공종명 + 차수 등) ---------
-                c.setFont("NanumGothic-Bold", 14)
-                # 예시: Cluster.name 이 "초화류사이제초(대원지하차도)_3차" 형태라고 가정
-                title = cluster.name or f"Cluster #{cluster.id}"
-                c.drawString(
-                    x_col2 + 10,
-                    table_top - header_h / 2.0,
-                    title,
-                )
-
-                # --------- 사진들 조회 (deleted_at 이 없는 것만, 순서대로) ---------
-                result_p = await session.execute(
-                    select(Photo)
-                    .where(
-                        Photo.cluster_id == cluster.id,
-                        Photo.deleted_at.is_(None),
+                    # "공종" : 두 번째 열의 header 영역 중앙
+                    _draw_vertical_text(
+                        c,
+                        x=x_col1 + second_col_w / 2.0,
+                        y_bottom=y_header_bottom,
+                        y_top=table_top,
+                        text="공종",
+                        font_size=14,
                     )
-                    .order_by(Photo.order_index.asc())
-                )
-                photos = result_p.scalars().all()
 
-                # 전/중/후 3장 기준으로 배치 (사진이 더 적어도 상관없음)
-                image_x = x_col2 + 5
-                image_w = table_right - image_x - 5
-
-                for idx in range(3):
-                    if idx >= len(photos):
-                        break  # 사진이 부족하면 그 행은 비워둠
-
-                    photo = photos[idx]
-
-                    # 실제 이미지 파일 경로 가져오기
-                    #    없으면 original_filename 기반으로 /app/assets/uploads 아래에서 찾게 수정
-                    image_path = f"/app/assets" / Path(photo.storage_path)  # 실제 필드명에 맞게 수정
-
-                    # 이 행의 top / bottom
-                    row_top = row_tops[idx]
-                    row_bottom = row_bottoms[idx]
-
-                    image_y = row_bottom + 5
-                    image_h = row_top - image_y - 5
-
-                    try:
-                        c.drawImage(
-                            str(image_path),
-                            image_x,
-                            image_y,
-                            width=image_w,
-                            height=image_h,
-                            preserveAspectRatio=True,
-                            anchor="sw",
+                    # "전/중/후" : 두 번째 열의 각 행 중앙
+                    row_labels = ["전", "중", "후"]
+                    row_bottoms = [y_row1_bottom, y_row2_bottom, table_bottom]
+                    row_tops = [y_header_bottom, y_row1_bottom, y_row2_bottom]
+                    for label, yb, yt in zip(row_labels, row_bottoms, row_tops):
+                        _draw_vertical_text(
+                            c,
+                            x=x_col1 + second_col_w / 2.0,
+                            y_bottom=yb,
+                            y_top=yt,
+                            text=label,
+                            font_size=14,
                         )
-                    except Exception:
-                        # 이미지 로드 실패하면 파일명만 텍스트로 표시
-                        c.setFont("NanumGothic", 10)
-                        c.drawString(image_x, row_top - 20, f"이미지 로드 실패: {getattr(photo, 'original_filename', '')}")
 
-                    # --------- 사진 위에 "일자 / 시행처" 박스 ---------
-                    label_w = 160
-                    label_h = 40
-                    c.setFillColorRGB(1, 1, 1)
-                    c.rect(
-                        image_x,
-                        image_y + image_h - label_h,
-                        label_w,
-                        label_h,
-                        fill=1,
-                        stroke=1,
-                    )
-                    c.setFillColorRGB(0, 0, 0)
-                    c.setFont("NanumGothic", 9)
+                    # --------- 상단 제목(공종명 + 차수 등) ---------
+                    c.setFont("NanumGothic-Bold", 14)
+                    # 예시: Cluster.name 이 "초화류사이제초(대원지하차도)_3차" 형태라고 가정
+                    title = cluster.name or f"Cluster #{cluster.id}"
                     c.drawString(
-                        image_x + 6,
-                        image_y + image_h - 15,
-                        f"일자 : {date_str}",
-                    )
-                    c.drawString(
-                        image_x + 6,
-                        image_y + image_h - 30,
-                        f"시행처 : {contractor}",
+                        x_col2 + 10,
+                        table_top - header_h / 2.0,
+                        title,
                     )
 
-                # 페이지 종료
-                c.showPage()
+                    # --------- 사진들 조회 (deleted_at 이 없는 것만, 순서대로) ---------
+                    result_p = await session.execute(
+                        select(Photo)
+                        .where(
+                            Photo.cluster_id == cluster.id,
+                            Photo.deleted_at.is_(None),
+                        )
+                        .order_by(Photo.order_index.asc())
+                    )
+                    photos = result_p.scalars().all()
 
-            c.save()
+                    # GCS/S3 스토리지 클라이언트 초기화 (필요시)
+                    storage_client_for_photos = None
+                    if settings.STORAGE_TYPE in ["gcs", "s3"]:
+                        storage_client_for_photos = get_storage_client()
 
-            final_pdf_path = str(pdf_path)
+                    # 전/중/후 3장 기준으로 배치 (사진이 더 적어도 상관없음)
+                    image_x = x_col2 + 5
+                    image_w = table_right - image_x - 5
 
-            # GCS (또는 S3) 사용 시 업로드
-            if settings.STORAGE_TYPE in ["gcs", "s3"]:
-                try:
-                    storage_client = get_storage_client()
-                    # 저장 경로: {user_id}/{job_id}/exports/{filename}
-                    file_name = pdf_path.name
-                    storage_path = f"{user_id}/{job_id}/exports/{file_name}"
-                    
-                    async with aiofiles.open(pdf_path, 'rb') as f:
-                        await storage_client.save_file(f, storage_path, content_type="application/pdf")
-                    
-                    # 업로드 후 URL 또는 경로로 업데이트
-                    final_pdf_path = storage_client.get_url(storage_path)
+                    for idx in range(3):
+                        if idx >= len(photos):
+                            break  # 사진이 부족하면 그 행은 비워둠
 
-                    # 로컬 임시 파일 삭제 (선택 사항, 클라우드 환경에서는 용량 관리를 위해 삭제 권장)
-                    if pdf_path.exists():
-                        os.remove(pdf_path)
-                except Exception as e:
-                    logger.error(f"Failed to upload PDF to storage: {e}")
-                    # 업로드 실패 시에도 일단 로컬 경로는 남아있으나, 
-                    # 운영 환경에 따라 로컬 파일 접근이 불가능할 수 있음.
-                    # 여기서는 에러를 다시 던져서 Job을 Failed로 처리하거나, 
-                    # 로컬 경로라도 반환할지 결정해야 함. 
-                    # 현재 구조상 finally 블록이 없으므로 여기서 raise 하면 catch 블록으로 감.
-                    raise e
+                        photo = photos[idx]
+
+                        image_path = None
+                        if storage_client_for_photos: # GCS/S3의 경우 photo.url에서 이미지 다운로드
+                            try:
+                                if photo.url:
+                                    # Construct a unique temporary file path for the image
+                                    # Use a hash or a similar unique identifier to avoid name clashes
+                                    # And preserve the original extension if possible
+                                    image_filename = Path(photo.url).name
+                                    temp_image_path = Path(tmpdir) / image_filename
+
+                                    # Download the file
+                                    await storage_client_for_photos.download_file(photo.url, temp_image_path)
+                                    image_path = temp_image_path
+                                else:
+                                    logger.warning(f"Photo {photo.id} has no URL for GCS/S3 storage.")
+                            except Exception as download_e:
+                                logger.error(f"Failed to download image {photo.id} from {photo.url}: {download_e}")
+                        
+                        if not image_path: # Fallback for local or if cloud download failed
+                            # 실제 이미지 파일 경로 가져오기
+                            #    없으면 original_filename 기반으로 /app/assets/uploads 아래에서 찾게 수정
+                            image_path = Path("/app/assets") / Path(photo.storage_path)  # 실제 필드명에 맞게 수정
+                        
+                        # 이 행의 top / bottom
+                        row_top = row_tops[idx]
+                        row_bottom = row_bottoms[idx]
+
+                        image_y = row_bottom + 5
+                        image_h = row_top - image_y - 5
+
+                        try:
+                            # Ensure image_path is a string for c.drawImage
+                            if image_path:
+                                c.drawImage(
+                                    str(image_path),
+                                    image_x,
+                                    image_y,
+                                    width=image_w,
+                                    height=image_h,
+                                    preserveAspectRatio=True,
+                                    anchor="sw",
+                                )
+                            else:
+                                c.setFont("NanumGothic", 10)
+                                c.drawString(image_x, row_top - 20, f"이미지 로드 실패: 경로 없음")
+                        except Exception as e:
+                            logger.error(f"Failed to Draw Image: {e}")
+                            raise e
+                        
+                        # --------- 사진 위에 "일자 / 시행처" 박스 ---------
+                        label_w = 160
+                        label_h = 40
+                        c.setFillColorRGB(1, 1, 1)
+                        c.rect(
+                            image_x,
+                            image_y + image_h - label_h,
+                            label_w,
+                            label_h,
+                            fill=1,
+                            stroke=1,
+                        )
+                        c.setFillColorRGB(0, 0, 0)
+                        c.setFont("NanumGothic", 9)
+                        c.drawString(
+                            image_x + 6,
+                            image_y + image_h - 15,
+                            f"일자 : {date_str}",
+                        )
+                        c.drawString(
+                            image_x + 6,
+                            image_y + image_h - 30,
+                            f"시행처 : {contractor}",
+                        )
+
+                    # 페이지 종료
+                    c.showPage()
+
+                c.save()
+
+                final_pdf_path = str(tmp_pdf_path)
+
+                # GCS (또는 S3) 사용 시 업로드
+                if settings.STORAGE_TYPE in ["gcs", "s3"]:
+                    try:
+                        storage_client = get_storage_client()
+                        # 저장 경로: {user_id}/{job_id}/exports/{filename}
+                        file_name = tmp_pdf_path.name
+                        storage_path = f"{user_id}/{job_id}/exports/{file_name}"
+                        
+                        async with aiofiles.open(tmp_pdf_path, 'rb') as f:
+                            await storage_client.save_file(f, storage_path, content_type="application/pdf")
+                        
+                        # 업로드 후 URL 또는 경로로 업데이트
+                        final_pdf_path = storage_client.get_url(storage_path)
+
+                        # 로컬 임시 파일 삭제는 tempfile.TemporaryDirectory가 처리
+                    except Exception as e:
+                        logger.error(f"Failed to upload PDF to storage: {e}")
+                        raise e
 
             export_job.status = ExportStatus.EXPORTED
             export_job.pdf_path = final_pdf_path

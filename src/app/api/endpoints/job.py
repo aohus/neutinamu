@@ -244,27 +244,3 @@ async def get_export_status(
         pdf_url=pdf_url,
         error_message=err,
     )
-
-# @router.get("/jobs/{job_id}/export/download")
-# def download_export_pdf(
-#     job_id: str,
-#     db: AsyncSession = Depends(get_db)
-# ):
-#     job = (
-#         db.query(ExportJob)
-#         .filter(ExportJob.session_id == session_id)
-#         .order_by(ExportJob.created_at.desc())
-#         .first()
-#     )
-#     if not job or job.status != ExportStatus.DONE or not job.pdf_path:
-#         raise HTTPException(status_code=404, detail="No finished export for this session")
-
-#     pdf_path = Path(job.pdf_path)
-#     if not pdf_path.exists():
-#         raise HTTPException(status_code=404, detail="PDF file not found")
-
-#     return FileResponse(
-#         path=str(pdf_path),
-#         filename=pdf_path.name,
-#         media_type="application/pdf",
-#     )
