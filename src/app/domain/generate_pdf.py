@@ -326,7 +326,7 @@ async def generate_pdf_for_session(export_job_id: str):
                 elif settings.STORAGE_TYPE in ["gcs", "s3"]:
                     try:
                         # 저장 경로: {user_id}/{job_id}/exports/{filename}
-                        storage_path = f"{user.id}/{job_id}/exports/{file_name}"
+                        storage_path = f"{user.user_id}/{job_id}/exports/{file_name}"
                         
                         async with aiofiles.open(tmp_pdf_path, 'rb') as f:
                             await storage_client.save_file(f, storage_path, content_type="application/pdf")
