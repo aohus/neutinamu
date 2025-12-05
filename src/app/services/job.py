@@ -337,7 +337,7 @@ class JobService:
         result = await self.db.execute(
             select(ExportJob)
             .where(ExportJob.job_id == job_id)
-            .order_by(ExportJob.created_at.desc()).first()
+            .order_by(ExportJob.created_at.desc())
         )
         
         export_job = result.scalars().first()
