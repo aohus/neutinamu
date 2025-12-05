@@ -72,6 +72,7 @@ class GCSStorageService(StorageService):
 
     async def download_file(self, path: str, destination_local_path: Path):
         """Downloads a file from GCS to a local path."""
-        blob = self.bucket.blob(path)
+        item = path.replace(f"https://storage.googleapis.com/{self.bucket_name}/")
+        blob = self.bucket.blob(item)
         blob.download_to_filename(str(destination_local_path))
         logger.info(f"[GCS] Downloaded {path} to {destination_local_path}")
