@@ -2,6 +2,7 @@ import asyncio
 import io
 import logging
 import os
+from pathlib import Path
 
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
@@ -115,9 +116,9 @@ class JobService:
         for file_req in files:
             # Define path logic consistent with upload_photos
             if settings.STORAGE_TYPE == "local":
-                target_path = f"{job.id}/{file_req.filename}"
+                target_path = f"{job.id}/photos/original/{file_req.filename}"
             else:
-                target_path = f"{job.user_id}/{job.id}/{file_req.filename}"
+                target_path = f"{job.user_id}/{job.id}/photos/original/{file_req.filename}"
 
             upload_url = storage.generate_upload_url(target_path, content_type=file_req.content_type)
             
@@ -149,9 +150,19 @@ class JobService:
         storage = get_storage_client()
         photos = []
         for info in file_info_list:
-            storage_path = info['storage_path']
-            # Placeholder for thumbnail path if client uploaded it or we generate it later
-            thumbnail_path = info.get('thumbnail_path', storage_path) 
+            storage_path = info['storage_path'] # This is the original image path
+
+            original_filename = os.path.basename(storage_path)
+            original_filename_parts = os.path.splitext(original_filename)
+            thumb_filename = f"{original_filename_parts[0]}_thumb.jpg"
+            
+            base_dir = Path(storage_path).parent.parent  # photos/
+            derived_thumbnail_path = str(base_dir / "thumbnail" / thumb_filename)
+
+            thumbnail_path = info.get('thumbnail_path', derived_thumbnail_path)
+            
+            if thumbnail_path == storage_path:
+                thumbnail_path = derived_thumbnail_path
             
             photo = Photo(
                 job_id=job_id,
@@ -192,11 +203,11 @@ class JobService:
 
             # Determine the storage path based on storage type
             if settings.STORAGE_TYPE == "local":
-                # Local storage path: job_id/filename
-                target_path = f"{job.id}/{file.filename}"
+                # Local storage path: job_id/photos/original/filename
+                target_path = f"{job.id}/photos/original/{file.filename}"
             else:
-                # GCS/S3 storage path: user_id/job_id/filename
-                target_path = f"{job.user_id}/{job.id}/{file.filename}"
+                # GCS/S3 storage path: user_id/job_id/photos/original/filename
+                target_path = f"{job.user_id}/{job.id}/photos/original/{file.filename}"
 
             # Read file content to memory
             content = await file.read()
@@ -209,9 +220,14 @@ class JobService:
             thumb_content = generate_thumbnail(content)
             thumbnail_path = None
             if thumb_content:
-                # Insert _thumb before extension
-                path_parts = os.path.splitext(target_path)
-                thumb_target_path = f"{path_parts[0]}_thumb.jpg" # Force jpg for thumbnail
+                # Thumbnail path: user_id/job_id/photos/thumbnail/filename_thumb.jpg
+                original_filename_parts = os.path.splitext(os.path.basename(file.filename))
+                thumb_filename = f"{original_filename_parts[0]}_thumb.jpg"
+
+                if settings.STORAGE_TYPE == "local":
+                    thumb_target_path = f"{job.id}/photos/thumbnail/{thumb_filename}"
+                else:
+                    thumb_target_path = f"{job.user_id}/{job.id}/photos/thumbnail/{thumb_filename}"
                 
                 thumbnail_path = await storage.save_file(AsyncBytesIO(thumb_content), thumb_target_path, "image/jpeg")
 

@@ -1,18 +1,23 @@
 import glob
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
+import aiofiles
+from app.core.config import settings
 from app.db.database import AsyncSessionLocal
+from app.domain.storage.factory import get_storage_client
 from app.models.cluster import Cluster
 from app.models.job import ExportJob
 from app.models.photo import Photo
-from app.schemas.job import ExportStatus  # 상태 Enum 이라고 가정
+from app.schemas.enum import ExportStatus  # 상태 Enum 이라고 가정
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 # --------- 폰트 등록 ---------
 font_dir = Path("/app/fonts")
@@ -52,7 +57,9 @@ async def generate_pdf_for_session(export_job_id: str):
         try:
             # --------- ExportJob 조회 및 상태 변경 ---------
             result = await session.execute(
-                select(ExportJob).where(ExportJob.id == export_job_id)
+                select(ExportJob)
+                .options(selectinload(ExportJob.job))
+                .where(ExportJob.id == export_job_id)
             )
             export_job = result.scalars().first()
             if not export_job:
@@ -67,6 +74,16 @@ async def generate_pdf_for_session(export_job_id: str):
                 export_job.error_message = "Job not found"
                 await session.commit()
                 return
+
+            # user_id 가져오기 (ExportJob.job 관계 활용)
+            # Job이 로드되지 않았을 경우를 대비한 방어 로직 (이미 selectinload 했으므로 job은 존재해야 함)
+            if not export_job.job:
+                export_job.status = ExportStatus.FAILED
+                export_job.error_message = "Associated Job not found"
+                await session.commit()
+                return
+            
+            user_id = str(export_job.job.user_id)
 
             # (선택) 일자/시행처는 Job 또는 ExportJob 에서 가져온다고 가정
             # 실제 필드명에 맞게 수정 필요
@@ -255,8 +272,36 @@ async def generate_pdf_for_session(export_job_id: str):
 
             c.save()
 
+            final_pdf_path = str(pdf_path)
+
+            # GCS (또는 S3) 사용 시 업로드
+            if settings.STORAGE_TYPE in ["gcs", "s3"]:
+                try:
+                    storage_client = get_storage_client()
+                    # 저장 경로: {user_id}/{job_id}/exports/{filename}
+                    file_name = pdf_path.name
+                    storage_path = f"{user_id}/{job_id}/exports/{file_name}"
+                    
+                    async with aiofiles.open(pdf_path, 'rb') as f:
+                        await storage_client.save_file(f, storage_path, content_type="application/pdf")
+                    
+                    # 업로드 후 URL 또는 경로로 업데이트
+                    final_pdf_path = storage_client.get_url(storage_path)
+
+                    # 로컬 임시 파일 삭제 (선택 사항, 클라우드 환경에서는 용량 관리를 위해 삭제 권장)
+                    if pdf_path.exists():
+                        os.remove(pdf_path)
+                except Exception as e:
+                    logger.error(f"Failed to upload PDF to storage: {e}")
+                    # 업로드 실패 시에도 일단 로컬 경로는 남아있으나, 
+                    # 운영 환경에 따라 로컬 파일 접근이 불가능할 수 있음.
+                    # 여기서는 에러를 다시 던져서 Job을 Failed로 처리하거나, 
+                    # 로컬 경로라도 반환할지 결정해야 함. 
+                    # 현재 구조상 finally 블록이 없으므로 여기서 raise 하면 catch 블록으로 감.
+                    raise e
+
             export_job.status = ExportStatus.EXPORTED
-            export_job.pdf_path = str(pdf_path)
+            export_job.pdf_path = final_pdf_path
             export_job.finished_at = datetime.now()
             await session.commit()
 
