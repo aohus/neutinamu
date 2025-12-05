@@ -17,6 +17,11 @@ class Photo(Base):
     original_filename = Column(String, nullable=False)
     storage_path = Column(String, nullable=False)
     thumbnail_path = Column(String, nullable=True)
+    
+    # Public URLs (Cached)
+    url = Column(String, nullable=True)
+    thumbnail_url = Column(String, nullable=True)
+
     order_index = Column(Integer, nullable=True)
     
     # Metadata

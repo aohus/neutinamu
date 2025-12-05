@@ -146,14 +146,20 @@ class JobService:
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
+        storage = get_storage_client()
         photos = []
         for info in file_info_list:
+            storage_path = info['storage_path']
+            # Placeholder for thumbnail path if client uploaded it or we generate it later
+            thumbnail_path = info.get('thumbnail_path', storage_path) 
+            
             photo = Photo(
                 job_id=job_id,
                 original_filename=info['filename'],
-                storage_path=info['storage_path'],
-                # Thumbnail generation or metadata extraction should be triggered here or later
-                thumbnail_path=info['storage_path'] # Placeholder
+                storage_path=storage_path,
+                thumbnail_path=thumbnail_path,
+                url=storage.get_url(storage_path),
+                thumbnail_url=storage.get_url(thumbnail_path) if thumbnail_path else None
             )
             photos.append(photo)
         
@@ -214,6 +220,8 @@ class JobService:
                 original_filename=file.filename,
                 storage_path=saved_path, 
                 thumbnail_path=thumbnail_path, 
+                url=storage.get_url(saved_path),
+                thumbnail_url=storage.get_url(thumbnail_path) if thumbnail_path else None
             )
             logger.debug(f"Saved {file.filename} to {saved_path}, thumbnail: {thumbnail_path}")
             return photo

@@ -123,16 +123,29 @@ async def get_job_details(
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Populate URLs for photos
-    storage = get_storage_client()
+    # Map thumbnail_url to thumbnail_path for response compatibility if needed
+    # Since Pydantic model has thumbnail_path, we need to ensure the objects have it as URL
+    # OR we rely on the object attribute if the Pydantic model is configured with from_attributes=True and aliases.
+    
+    # Actually, JobDetailsResponse likely nests PhotoResponse or similar.
+    # Let's check JobDetailsResponse.
+    # If it uses PhotoResponse, and PhotoResponse fields are populated from ORM attributes...
+    # The Photo model has thumbnail_path (relative) and thumbnail_url (absolute).
+    # The PhotoResponse schema has thumbnail_path (which we used as URL).
+    
+    # To avoid confusion, I will manually assign url and thumbnail_path on the objects just like before,
+    # but using the DB values instead of storage.get_url()
+    
     for photo in job.photos:
-        photo.url = storage.get_url(photo.storage_path)
-        photo.thumbnail_path = storage.get_url(photo.thumbnail_path) if photo.thumbnail_path else None
+        # photo.url is already correct from DB
+        if photo.thumbnail_url:
+             photo.thumbnail_path = photo.thumbnail_url # Override relative path with URL for response
     
     for cluster in job.clusters:
         for photo in cluster.photos:
-            photo.url = storage.get_url(photo.storage_path)
-            photo.thumbnail_path = storage.get_url(photo.thumbnail_path) if photo.thumbnail_path else None
+            if photo.thumbnail_url:
+                photo.thumbnail_path = photo.thumbnail_url
+
     return job
 
 
