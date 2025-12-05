@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import BinaryIO, Optional
 
 from app.core.config import settings
+from fastapi import HTTPException
 from google.cloud import storage
 
 from .base import StorageService

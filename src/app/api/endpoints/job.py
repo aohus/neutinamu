@@ -11,6 +11,7 @@ from app.models.user import User
 from app.schemas.enum import ExportStatus, JobStatus
 from app.schemas.job import (
     ExportStatusResponse,
+    FileResponse,
     JobClusterRequest,
     JobDetailsResponse,
     JobRequest,
@@ -252,4 +253,19 @@ async def get_export_status(
         status=status,
         pdf_url=pdf_url,
         error_message=err,
+    )
+
+
+@router.get("/jobs/{job_id}/export/download")
+async def download_export_pdf(
+    job_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    service = JobService(db)
+    pdf_path, name = await service.download_export_pdf(job_id=job_id)
+
+    return FileResponse(
+        path=str(pdf_path),
+        filename=name,
+        media_type="application/pdf",
     )

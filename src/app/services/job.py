@@ -367,3 +367,25 @@ class JobService:
             raise HTTPException(status_code=404, detail="Export job not found")
         return export_job.status, export_job.pdf_path, export_job.error_message
 
+    async def download_export_pdf(self, job_id):
+        logger.debug(f"Fetching job with ID: {job_id}")
+        result = await self.db.execute(select(Job)
+                                       .where(Job.id == job_id)
+                                       .options(selectinload(Job.export_job)))
+        job = result.scalars().first()
+        if not job:
+            logger.warning(f"Job with ID {job_id} not found.")
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        filename = f"{job.title}.pdf"
+        export_job = job.export_job
+        if not export_job or export_job.status != ExportStatus.EXPORTED or not export_job.pdf_path:
+            raise HTTPException(status_code=404, detail="No finished export for this session")
+
+        if settings.STORAGE_TYPE == "local":
+            target_path = Path(f"/app{export_job.pdf_path}")
+            if not target_path.exists():
+                raise HTTPException(status_code=404, detail="PDF file not found")
+        else:
+            target_path = export_job.pdf_path
+        return target_path, filename

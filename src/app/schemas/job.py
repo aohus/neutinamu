@@ -74,3 +74,9 @@ class ExportStatusResponse(BaseModel):
     status: ExportStatus
     pdf_url: Optional[str] = None
     error_message: Optional[str] = None
+
+
+class FileResponse(BaseModel):
+    path: str
+    filename: str
+    media_type: str
