@@ -333,8 +333,15 @@ class JobService:
         job = result.scalars().first()
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
-
-        if job.export_job and job.export_job.status in {
+        
+        result = await self.db.execute(
+            select(ExportJob)
+            .where(ExportJob.job_id == job_id)
+            .order_by(ExportJob.created_at.desc()).first()
+        )
+        
+        export_job = result.scalars().first()
+        if export_job and export_job.status in {
             ExportStatus.PENDING,
             ExportStatus.PROCESSING,
         }:
