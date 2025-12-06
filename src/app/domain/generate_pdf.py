@@ -33,7 +33,7 @@ class PDFLayoutConfig:
     FONT_NAME: str = "AppleGothic"
     
     # 템플릿 GCS 경로 (설정 파일 등에서 관리 권장)
-    TEMPLATE_GCS_PATH: str = settings.PDF_BASE_TEMPLATE_PATH if settings.PDF_BASE_TEMPLATE_PATH else "/templates/base_template.pdf"
+    TEMPLATE_GCS_PATH: str = settings.PDF_BASE_TEMPLATE_PATH if settings.PDF_BASE_TEMPLATE_PATH else "templates/base_template.pdf"
 
     # 레이아웃 치수 (pt 단위)
     PAGE_WIDTH: float = 595
