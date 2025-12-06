@@ -66,9 +66,13 @@ class JobService:
         logger.info(f"Found {len(jobs)} jobs for user: {user.user_id}")
         return jobs
 
-    async def create_job(self, user: User, title: str, contractor_name: Optional[str] = None, work_date: Optional[datetime] = None):
+    async def create_job(self, user: User, title: str, construction_type: Optional[str] = None, company_name: Optional[str] = None):
         logger.info(f"User {user.user_id} creating job with title: '{title}'")
-        job = Job(user_id=user.user_id, title=title, contractor_name=contractor_name, work_date=work_date)
+        
+        if not company_name:
+            company_name = user.company_name
+            
+        job = Job(user_id=user.user_id, title=title, construction_type=construction_type, company_name=company_name)
         self.db.add(job)
         await self.db.commit()
         await self.db.refresh(job)

@@ -63,8 +63,8 @@ async def create_job(
     job = await service.create_job(
         user=current_user,
         title=payload.title,
-        contractor_name=payload.contractor_name,
-        work_date=payload.work_date
+        construction_type=payload.construction_type,
+        company_name=payload.company_name
     )
     
     return JobResponse(
@@ -73,8 +73,8 @@ async def create_job(
         status=job.status, 
         export_status=ExportStatus.PENDING, 
         created_at=job.created_at,
-        contractor_name=job.contractor_name,
-        work_date=job.work_date
+        construction_type=job.construction_type,
+        company_name=job.company_name
     )
 
 

@@ -51,8 +51,8 @@ class Job(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)
     title = Column(String, nullable=False)
     status = Column(SqlEnum(JobStatus), default=JobStatus.CREATED)
-    contractor_name = Column(String(255), nullable=True)
-    work_date = Column(DateTime(timezone=True), nullable=True)
+    construction_type = Column(String(255), nullable=True)
+    company_name = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
