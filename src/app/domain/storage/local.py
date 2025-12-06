@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import shutil
@@ -54,6 +55,16 @@ class LocalStorageService(StorageService):
             return True
         logger.warning(f"File not found for deletion: {full_path}")
         return False
+
+    async def delete_directory(self, path: str) -> bool:
+        full_path = self.media_root / path
+        logger.debug(f"Deleting directory from local storage: {full_path}")
+        
+        if os.path.isdir(full_path):
+            await asyncio.to_thread(shutil.rmtree, full_path)
+            logger.info(f"Directory '{full_path}' removed asynchronously.")
+        else:
+            logger.error(f"Directory '{full_path}' does not exist or is not a directory.")
 
     async def move_file(self, source_path: str, dest_path: str) -> str:
         src = self.media_root / source_path

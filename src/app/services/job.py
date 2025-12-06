@@ -77,11 +77,17 @@ class JobService:
 
     async def delete_job(self, job_id: str):
         logger.info(f"Deleting job: '{job_id}'")
-
+        storage = get_storage_client()
+        
         job = await self.db.get(Job, job_id)
+        user_id = job.user_id
         if job is not None:
             await self.db.delete(job)
             await self.db.commit()
+
+        job_object_path = f"{user_id}/{job_id}/"
+        await storage.delete_directory(job_object_path)
+        
         logger.info(f"Job deleted successfully with ID: {job_id}")
         return 
 
@@ -116,17 +122,8 @@ class JobService:
         strategy = "proxy" if settings.STORAGE_TYPE == "local" else "direct"
 
         for file_req in files:
-            # Define path logic consistent with upload_photos
-            if settings.STORAGE_TYPE == "local":
-                target_path = f"{job.id}/photos/original/{file_req.filename}"
-            else:
-                target_path = f"{job.user_id}/{job.id}/photos/original/{file_req.filename}"
-
+            target_path = f"{job.user_id}/{job.id}/photos/original/{file_req.filename}"
             upload_url = storage.generate_upload_url(target_path, content_type=file_req.content_type)
-            
-            # If storage service returns None (e.g. Local), we fallback to proxy strategy implicitly
-            # But here we set strategy based on config.
-            
             response_urls.append(
                 PresignedUrlResponse(
                     filename=file_req.filename,
@@ -204,11 +201,7 @@ class JobService:
             logger.debug(f"Processing file: {file.filename}")
 
             # Determine the storage path based on storage type
-            if settings.STORAGE_TYPE == "local":
-                target_path = f"{job.id}/{file.filename}"
-            else:
-                target_path = f"{job.user_id}/{job.id}/photos/original/{file.filename}"
-
+            target_path = f"{job.user_id}/{job.id}/photos/original/{file.filename}"
             content = await file.read()
             
             # Wrap content in AsyncBytesIO because storage.save_file expects async read
@@ -221,12 +214,7 @@ class JobService:
                 # Thumbnail path: user_id/job_id/photos/thumbnail/filename_thumb.jpg
                 original_filename_parts = os.path.splitext(os.path.basename(file.filename))
                 thumb_filename = f"{original_filename_parts[0]}_thumb.jpg"
-
-                if settings.STORAGE_TYPE == "local":
-                    thumb_target_path = f"{job.id}/{thumb_filename}"
-                else:
-                    thumb_target_path = f"{job.user_id}/{job.id}/photos/thumbnail/{thumb_filename}"
-                
+                thumb_target_path = f"{job.user_id}/{job.id}/photos/thumbnail/{thumb_filename}"
                 thumbnail_path = await storage.save_file(AsyncBytesIO(thumb_content), thumb_target_path, "image/jpeg")
 
             photo = Photo(
