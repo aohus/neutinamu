@@ -366,10 +366,7 @@ class JobService:
         if not export_job or export_job.status != ExportStatus.EXPORTED or not export_job.pdf_path:
             raise HTTPException(status_code=404, detail="No finished export for this session")
 
-        if settings.STORAGE_TYPE == "local":
-            target_path = Path(f"/app{export_job.pdf_path}")
-            if not target_path.exists():
-                raise HTTPException(status_code=404, detail="PDF file not found")
-        else:
-            target_path = export_job.pdf_path
+        target_path = export_job.pdf_path
+        if not target_path:
+            raise HTTPException(status_code=404, detail="PDF file not found")
         return target_path, filename
