@@ -1,12 +1,12 @@
 import logging
 
 from app.db.database import get_db
+from app.domain.storage.factory import get_storage_client  # Import this
 from app.schemas.photo import PhotoMove, PhotoResponse
 from app.services.cluster import ClusterService
 from app.services.photo import PhotoService
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.domain.storage.factory import get_storage_client # Import this
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -39,15 +39,6 @@ async def move_photo(
     service = PhotoService(db)
     cluster_service = ClusterService(db)
     await service.move_photo(photo_id=photo_id, payload=payload, cluster_service=cluster_service)
-
-# @router.post("/clusters/{cluster_id}/move-photo", status_code=status.HTTP_204_NO_CONTENT)
-# async def move_photo(
-#     cluster_id: str,
-#     payload: PhotoMove,
-#     db: AsyncSession = Depends(get_db)
-# ):
-#     service = PhotoService(db)
-#     await service.move_photo(cluster_id=cluster_id, payload=payload)
 
 
 @router.delete("/photos/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)

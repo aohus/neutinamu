@@ -1,30 +1,36 @@
-# Multi-stage build for Python FastAPI backend
-FROM python:3.12-slim as builder
+# ----------------------------------------------------
+# Builder Stage
+# ----------------------------------------------------
+FROM python:3.12.1-bookworm as builder
 
-# Set working directory
 WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# libpq-dev: psycopg2 빌드에 필요
+# zlib1g-dev, libjpeg-dev: PyMuPDF나 Pillow 등 이미지 관련 라이브러리 빌드에 필요
+# libgomp1: PyMuPDF가 병렬 처리를 위해 런타임에 필요하며, 빌드 시에도 의존성이 걸릴 수 있음
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     gcc \
-    postgresql-client \
+    libpq-dev \
+    zlib1g-dev \
+    libjpeg-dev \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
 COPY ./src/requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Production stage
-FROM python:3.12-slim
+# ----------------------------------------------------
+# Production Stage
+# ----------------------------------------------------
+FROM python:3.12.1-slim-bookworm
 
-# Set working directory
 WORKDIR /app
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
+# * libgomp1: PyMuPDF 등 병렬 처리에 사용되는 C 라이브러리의 런타임
+# * postgresql-client: psql 명령줄 도구가 필요할 경우
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
@@ -37,10 +43,7 @@ RUN useradd -m -u 1000 appuser
 
 # Copy application code with ownership
 COPY --chown=appuser:appuser ./src .
-
 USER appuser
-
-# Expose port
 EXPOSE 8000
 
 # Health check
