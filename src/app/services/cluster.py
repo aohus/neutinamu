@@ -67,6 +67,7 @@ class ClusterService:
         self.db.add(cluster)
         await self.db.flush()
 
+        photos = []
         if photo_ids:
             result = await self.db.execute(
                 select(Photo)
@@ -81,7 +82,7 @@ class ClusterService:
         await self.db.commit()
         await self.db.refresh(cluster)
         logger.info(f"Cluster '{cluster.name}' created successfully with id: {cluster.id}")
-        return cluster
+        return cluster, photos
 
     async def update_cluster(self, job_id: str, cluster_id: str, new_name: str = None, order_index: int = 0):
         """Rename a cluster."""
@@ -126,4 +127,76 @@ class ClusterService:
             clusters = result.scalars().all()
             for cluster in clusters:
                 cluster.order_index -= 1
+        await self.db.commit()
+
+    async def add_photos(self, job_id: str, cluster_id: str, photo_ids: list[str]):
+        """Add photos to a cluster."""
+        logger.info(f"Adding {len(photo_ids)} photos to cluster {cluster_id}")
+        
+        # Check cluster exists
+        result = await self.db.execute(select(Cluster).where(Cluster.id == cluster_id))
+        cluster = result.scalars().first()
+        if not cluster:
+            raise HTTPException(status_code=404, detail="Cluster not found")
+
+        # Get current photos count to append
+        # We need to know the max order_index currently in the cluster to append correctly
+        result = await self.db.execute(
+            select(Photo).where(Photo.cluster_id == cluster_id)
+        )
+        current_photos = result.scalars().all()
+        start_index = len(current_photos)
+
+        # Update photos
+        # Fetch photos to ensure they exist and we can update them
+        result = await self.db.execute(
+            select(Photo).where(Photo.id.in_(photo_ids))
+        )
+        photos_to_move = result.scalars().all()
+        
+        for idx, photo in enumerate(photos_to_move):
+            photo.cluster_id = cluster_id
+            photo.order_index = start_index + idx
+        
+        await self.db.commit()
+        return
+
+    async def sync_clusters(self, job_id: str, cluster_data: list[dict]):
+        """Sync cluster order and photo assignments."""
+        logger.info(f"Syncing clusters for job {job_id}")
+        
+        # To optimize, we can fetch all clusters and photos for this job first
+        # But for simplicity and safety with SQLAlchemy async session tracking, 
+        # we'll iterate. Given the likely size (< 100 clusters, < 1000 photos), it should be acceptable.
+        # Optimization: Check if data actually changed? 
+        # Frontend sends everything, so we overwrite.
+        
+        for c_data in cluster_data:
+            c_id = c_data.get('id')
+            c_order = c_data.get('order_index')
+            c_photo_ids = c_data.get('photo_ids', [])
+            
+            # Update Cluster
+            cluster = await self.db.get(Cluster, c_id)
+            if cluster and cluster.job_id == job_id:
+                if cluster.order_index != c_order:
+                    cluster.order_index = c_order
+                
+                # Update Photos
+                if c_photo_ids:
+                    # Fetch photos that need updating
+                    # We only need to update if they are different.
+                    # But simply overwriting order_index and cluster_id is fast enough in memory
+                    result = await self.db.execute(select(Photo).where(Photo.id.in_(c_photo_ids)))
+                    photos = result.scalars().all()
+                    photo_map = {p.id: p for p in photos}
+                    
+                    for p_idx, p_id in enumerate(c_photo_ids):
+                        if p_id in photo_map:
+                            photo = photo_map[p_id]
+                            # Only update if changed to avoid unnecessary db writes?
+                            # SQLAlchemy tracks changes, so assignment is cheap if value is same.
+                            photo.cluster_id = c_id
+                            photo.order_index = p_idx
+            
         await self.db.commit()

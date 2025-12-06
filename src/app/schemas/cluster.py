@@ -19,6 +19,20 @@ class ClusterUpdateRequest(ClusterBase):
     new_name: Optional[str] = None
 
 
+class ClusterItemSync(BaseModel):
+    id: str
+    order_index: int
+    photo_ids: List[str]
+
+
+class ClusterSyncRequest(BaseModel):
+    clusters: List[ClusterItemSync]
+
+
+class ClusterAddPhotosRequest(BaseModel):
+    photo_ids: List[str]
+
+
 class ClusterResponse(ClusterBase):
     id: str
     job_id: str
