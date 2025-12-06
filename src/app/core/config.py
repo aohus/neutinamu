@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     MEDIA_ROOT: str = "/app/assets" # For local storage
     MEDIA_URL: str = "/api/uploads"
     GCS_BUCKET_NAME: Optional[str] = None
+    PDF_BASE_TEMPLATE_PATH: Optional[str] = None
     
     # Auth
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
