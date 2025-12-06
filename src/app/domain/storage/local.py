@@ -17,8 +17,6 @@ class LocalStorageService(StorageService):
     """Implementation of StorageService for local filesystem."""
 
     def __init__(self):
-        # LocalConfig나 settings에서 MEDIA_ROOT를 가져옴
-        # settings.MEDIA_ROOT가 "/app/src/assets" 같은 형태라고 가정
         self.media_root = Path(settings.MEDIA_ROOT)
         self.media_root.mkdir(parents=True, exist_ok=True)
         logger.debug(f"LocalStorageService initialized with base path {self.media_root}")
@@ -73,10 +71,7 @@ class LocalStorageService(StorageService):
         return dest_path
 
     def get_url(self, path: str) -> str:
-        # 로컬 개발 환경에서는 보통 static file serving을 통해 접근
-        # 예: http://localhost:8000/assets/path/to/file.jpg
-        # settings.MEDIA_URL이 "/assets" 라고 가정
-        url = f"{settings.MEDIA_URL}/{path}".replace("//", "/")
+        url = "http://0.0.0.0:8000" + f"/{settings.MEDIA_URL}/{path}".replace("//", "/")
         logger.debug(f"Generating URL for local path: {path} -> {url}")
         return url
 

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # Storage
     STORAGE_TYPE: str = "local" # local, gcs, s3
     MEDIA_ROOT: str = "/app/assets" # For local storage
-    MEDIA_URL: str = "/assets" # For local serving
+    MEDIA_URL: str = "/api/uploads"
     GCS_BUCKET_NAME: Optional[str] = None
     
     # Auth
