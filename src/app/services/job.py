@@ -205,19 +205,15 @@ class JobService:
 
             # Determine the storage path based on storage type
             if settings.STORAGE_TYPE == "local":
-                # Local storage path: job_id/photos/original/filename
-                target_path = f"{job.id}/photos/original/{file.filename}"
+                target_path = f"{job.id}/{file.filename}"
             else:
-                # GCS/S3 storage path: user_id/job_id/photos/original/filename
                 target_path = f"{job.user_id}/{job.id}/photos/original/{file.filename}"
 
-            # Read file content to memory
             content = await file.read()
             
-            # Save original file
             # Wrap content in AsyncBytesIO because storage.save_file expects async read
             saved_path = await storage.save_file(AsyncBytesIO(content), target_path, file.content_type)
-            
+
             # Generate and save thumbnail
             thumb_content = generate_thumbnail(content)
             thumbnail_path = None
@@ -227,7 +223,7 @@ class JobService:
                 thumb_filename = f"{original_filename_parts[0]}_thumb.jpg"
 
                 if settings.STORAGE_TYPE == "local":
-                    thumb_target_path = f"{job.id}/photos/thumbnail/{thumb_filename}"
+                    thumb_target_path = f"{job.id}/{thumb_filename}"
                 else:
                     thumb_target_path = f"{job.user_id}/{job.id}/photos/thumbnail/{thumb_filename}"
                 

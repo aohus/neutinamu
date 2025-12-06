@@ -1,372 +1,404 @@
-import glob
+import asyncio
 import logging
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import List, Optional
 
 import aiofiles
+import fitz  # PyMuPDF
+
+# --- [Project Dependencies] ---
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
 from app.domain.storage.factory import get_storage_client
 from app.models.cluster import Cluster
 from app.models.job import ExportJob, Job
 from app.models.photo import Photo
-from app.schemas.enum import ExportStatus  # 상태 Enum 이라고 가정
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfgen import canvas
+from app.schemas.enum import ExportStatus
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-# --------- 폰트 등록 ---------
-font_dir = Path("/app/fonts")
-
 logger = logging.getLogger(__name__)
 
-pdfmetrics.registerFont(
-    TTFont("NanumGothic", str(font_dir / "AppleGothic.ttf"))
-)
-pdfmetrics.registerFont(
-    TTFont("NanumGothic-Bold", str(font_dir / "AppleGothic.ttf"))
-)
+# --- [1. 설정 및 상수 관리 (Config)] ---
+@dataclass
+class PDFLayoutConfig:
+    """A4 레이아웃 및 템플릿 설정값"""
+    # 폰트
+    FONT_PATH: str = "/app/fonts/AppleGothic.ttf"
+    FONT_NAME: str = "AppleGothic"
+    
+    # 템플릿 GCS 경로 (설정 파일 등에서 관리 권장)
+    TEMPLATE_GCS_PATH: str = "common/templates/photo_board_template_v1.pdf"
 
-def _draw_vertical_text(c: canvas.Canvas, x: float, y_bottom: float, y_top: float, text: str, font="NanumGothic-Bold", font_size=12):
+    # 레이아웃 치수 (pt 단위)
+    PAGE_WIDTH: float = 595
+    PAGE_HEIGHT: float = 842
+    
+    # 데이터 배치 영역 (템플릿의 선 위치에 맞춰 조정 필요)
+    # 헤더
+    HEADER_TITLE_RECT = fitz.Rect(146, 122, 400, 142)  # 공종/제목 들어갈 곳
+    
+    # 좌측 라벨 컬럼 너비
+    LABEL_COL_WIDTH: float = 61
+    
+    # 사진 배치 영역 시작점 및 크기
+    # 첫번째 행(전)의 이미지 박스 영역 (테두리 제외하고 사진이 들어갈 내부 좌표)
+    ROW_1_TOP: float = 148
+    ROW_HEIGHT: float = 214
+    
+    PHOTO_HEIGHT: float = 213 # 사진 높이
+    PHOTO_WIDTH: float = 373 # 사진 비율에 맞춰야함. 
+    
+    # 사진 캡션 박스
+    CAPTION_WIDTH: float = 78
+    CAPTION_HEIGHT: float = 26
+
+# 전역 설정 인스턴스
+LAYOUT = PDFLayoutConfig()
+
+
+# --- [2. PDF 생성기 (Generator Layer)] ---
+class PDFGenerator:
     """
-    세로(90도 회전) 텍스트 그리기 유틸.
-    x : 세로 글자의 기준 x (원래 좌표계)
-    y_bottom, y_top : 세로 셀의 아래/위
+    데이터를 받아 PDF를 생성하는 역할만 전담하는 클래스
     """
-    c.saveState()
-    c.setFont(font, font_size)
-    mid_y = (y_bottom + y_top) / 2.0
-    # 기준점으로 이동 후 회전
-    c.translate(x, mid_y)
-    # c.rotate(90)
-    c.drawCentredString(0, 0, text)
-    c.restoreState()
+    def __init__(self, tmp_dir: str):
+        self.tmp_dir = Path(tmp_dir)
+        self.font_name = Path(LAYOUT.FONT_NAME)
+        self.font_path = Path(LAYOUT.FONT_PATH)
+        self.template_path = self.tmp_dir / "template.pdf"
+        self.output_path = self.tmp_dir / f"result_{int(datetime.now().timestamp())}.pdf"
+
+    def _register_font(self, doc: fitz.Document):
+        """폰트 등록"""
+        if self.font_path.exists():
+            # 페이지마다 폰트를 쓰기 위해 글로벌하게 등록하거나, insert_text시 fontfile 지정
+            # 여기서는 편의상 파일 경로를 멤버 변수로 유지하여 사용
+            pass
+        else:
+            logger.warning(f"Font file missing: {self.font_path}")
+
+    def _download_template_if_needed(self, storage_client):
+        """
+        GCS에서 템플릿 다운로드 (로컬 캐싱 가능)
+        """
+        # 1. 이미 다운로드 받았다면 스킵 (캐싱 로직 추가 가능)
+        if self.template_path.exists():
+            return
+
+        # 2. GCS 다운로드 (동기 방식으로 실행됨, ThreadPool 내부에서 호출 권장)
+        try:
+            # storage_client.download_file은 비동기일 수 있으므로 주의. 
+            # 이 메소드는 run_in_executor 내부에서 불리므로 동기 client나 
+            # 비동기 함수라면 loop.run_until_complete 등을 고려해야 함.
+            # 여기서는 편의상 외부에서 다운로드 받아 경로만 넘겨주는 방식을 추천하지만,
+            # 구조상 여기서 처리하려면 동기식 다운로드가 필요함.
+            pass 
+        except Exception as e:
+            logger.error(f"Failed to download template: {e}")
+            # 템플릿이 없으면 빈 페이지로 생성하도록 fallback 처리 필요
+
+    def generate(self, job_info: dict, clusters: List[dict], template_local_path: Path) -> str:
+        """
+        메인 생성 로직 (CPU Bound)
+        :param job_info: {contractor, date_str, ...}
+        :param clusters: [{name, photos: [{path, ...}]}, ...]
+        :param template_local_path: 다운로드 된 템플릿 경로
+        :return: 생성된 PDF 경로
+        """
+        # 1. 템플릿 로드
+        if template_local_path and template_local_path.exists():
+            src_doc = fitz.open(template_local_path)
+        else:
+            # 템플릿 없으면 에러 혹은 빈 문서
+            logger.error("Template not found.")
+            return None
+
+        out_doc = fitz.open()
+
+        font_file = str(self.font_path) if self.font_path.exists() else None
+        logger.info(f"font_file: {font_file}")
+        FONTNAME = "AppleGothic"
+        font_alias = None 
+
+        if font_file:
+            try:
+                # fitz.add_font()는 str을 요구하므로 str()로 명시적 변환
+                font_xref = out_doc.add_font(fontfile=str(font_file), fontname=FONTNAME)
+                font_alias = FONTNAME 
+                logger.info(f"Custom font {font_file} embedded with xref: {font_xref}")
+            except Exception as e:
+                logger.error(f"FATAL: Failed to embed font {font_file}: {e}. Falling back to default.")
+                font_alias = "kr"
+
+        # 2. 클러스터(페이지) 단위 반복
+        for cluster in clusters:
+            # 템플릿의 첫 페이지를 복제하여 새 페이지로 추가
+            out_doc.insert_pdf(src_doc, from_page=0, to_page=0)
+            page = out_doc[-1]  # 방금 추가된 페이지
+
+            # --- [A] 텍스트 데이터 채우기 (이미 그려진 표 위에) ---
+            # 1. 헤더 (공종명)
+            title_text = cluster['name']
+            page.insert_textbox(
+                LAYOUT.HEADER_TITLE_RECT,
+                title_text,
+                fontname=font_alias,
+                fontfile=font_file,
+                fontsize=12,
+                align=fitz.TEXT_ALIGN_LEFT
+            )
+
+            # --- [B] 사진 배치 ---
+            photos = cluster['photos'] # 최대 3개
+            
+            # 3행 (전/중/후) 좌표 계산
+            # 템플릿의 행 높이에 따라 Y좌표 이동
+            row_start_y = LAYOUT.ROW_1_TOP # 첫 행 시작점
+            
+            for idx in range(3):
+                # 해당 행의 Y 중심점 계산
+                current_row_y = row_start_y + (idx * LAYOUT.ROW_HEIGHT)
+                row_center_y = current_row_y + (LAYOUT.ROW_HEIGHT / 2)
+                
+                # 사진이 없으면 패스
+                if idx >= len(photos):
+                    continue
+
+                photo = photos[idx]
+                img_path = photo['local_path']
+
+                if not img_path or not os.path.exists(img_path):
+                    continue
+
+                # 1. 이미지 Rect 계산 (중앙 정렬)
+                img_w = LAYOUT.PHOTO_WIDTH
+                img_h = LAYOUT.PHOTO_HEIGHT
+                
+                # X좌표: 라벨 컬럼 끝(85) + 여백
+                img_x = LAYOUT.LABEL_COL_WIDTH + (LAYOUT.PAGE_WIDTH - LAYOUT.LABEL_COL_WIDTH - img_w) / 2
+                
+                # Y좌표: 행 중앙 - 사진 절반
+                img_y = row_center_y - (img_h / 2)
+
+                img_rect = fitz.Rect(img_x, img_y, img_x + img_w, img_y + img_h)
+
+                # 2. 이미지 삽입
+                try:
+                    page.insert_image(img_rect, filename=str(img_path))
+                except Exception as e:
+                    logger.error(f"Image insert failed: {e}")
+                    continue
+
+                # 3. 캡션 (일자/시행처) 오버레이
+                self._draw_caption(page, img_rect, job_info, font_alias, font_file)
+
+        # 3. 저장
+        out_doc.save(self.output_path)
+        out_doc.close()
+        src_doc.close()
+        
+        return str(self.output_path)
+
+    def _draw_caption(self, page, img_rect, job_info, font_alias, font_file):
+        """사진 위에 설명 박스 그리기"""
+        cap_w = LAYOUT.CAPTION_WIDTH
+        cap_h = LAYOUT.CAPTION_HEIGHT
+        
+        # 사진 칸 왼쪽 상단에 배치
+        cap_x0 = img_rect.x0 - 2
+        cap_y0 = img_rect.y0 
+        cap_x1 = cap_x0 + cap_w
+        cap_y1 = cap_y0 + cap_h
+        
+        cap_rect = fitz.Rect(cap_x0, cap_y0, cap_x1, cap_y1)
+        
+        # 흰색 박스
+        page.draw_rect(cap_rect, color=(1,1,1), fill=(1,1,1))
+        page.draw_rect(cap_rect, color=(0.7,0.7,0.7), width=0.5) # 연한 테두리
+
+        PAD_LEFT = 2  # 가로 패딩 (왼쪽 여백)
+        PAD_TOP = 4 # 세로 위 패딩
+        
+        # 텍스트 삽입 사각형 (text_rect) 정의
+        text_rect = fitz.Rect(
+            cap_rect.x0 + PAD_LEFT,                      # 좌측 패딩 적용
+            cap_rect.y0 + PAD_TOP,          # 상단 여백 (세로 정렬을 위한 공간 확보)
+            cap_rect.x1,                              # 우측 여백은 적용하지 않음
+            cap_rect.y1
+        )
+
+        # 텍스트
+        text = f"일자 : {job_info['date']}\n시행처 : {job_info['contractor']}"
+        page.insert_textbox(
+            text_rect,
+            text,
+            fontname=font_alias,
+            fontfile=font_file,
+            fontsize=6,
+            align=fitz.TEXT_ALIGN_LEFT
+        )
 
 
+# --- [3. 서비스 로직 (Service Layer)] ---
 async def generate_pdf_for_session(export_job_id: str):
     """
-    ExportJob 을 읽어서,
-    각 Cluster 를 1페이지로 하는 "전/중/후 사진 보고서" PDF 생성.
+    ExportJob 처리 메인 함수
     """
     async with AsyncSessionLocal() as session:
-        export_job = None
-        try:
-            # --------- ExportJob 조회 및 상태 변경 ---------
-            result = await session.execute(
-                select(ExportJob)
-                .options(
-                    selectinload(ExportJob.job).selectinload(Job.user),
-                    selectinload(ExportJob.job).selectinload(Job.photos),
-                )
-                .where(ExportJob.id == export_job_id)
+        stmt = (
+            select(ExportJob)
+            .options(
+                selectinload(ExportJob.job).selectinload(Job.user),
+                selectinload(ExportJob.job).selectinload(Job.photos),
             )
-            export_job = result.scalars().first()
-            if not export_job:
-                return
+            .where(ExportJob.id == export_job_id)
+        )
+        result = await session.execute(stmt)
+        export_job = result.scalars().first()
 
-            export_job.status = ExportStatus.PROCESSING
-            await session.commit()
+        if not export_job:
+            logger.error(f"ExportJob {export_job_id} not found.")
+            return
 
-            job_id = export_job.job_id
-            if not job_id:
-                export_job.status = ExportStatus.FAILED
-                export_job.error_message = "Job not found in export job."
-                await session.commit()
-                return
+        # 상태 업데이트
+        export_job.status = ExportStatus.PROCESSING
+        await session.commit()
 
-            if not export_job.job:
-                export_job.status = ExportStatus.FAILED
-                export_job.error_message = "Associated Job not found."
-                await session.commit()
-                return
-
+        try:
             job = export_job.job
             user = job.user
-
-            # Determine contractor
-            contractor = job.contractor_name
-            if not contractor and user:
-                contractor = user.company_name
             
-            if not contractor:
-                export_job.status = ExportStatus.FAILED
-                export_job.error_message = "Contractor name not provided and user company name is missing."
-                await session.commit()
-                return
+            # 메타데이터 준비
+            contractor = job.contractor_name or (user.company_name if user else "") or "Unknown"
+            
+            # 날짜 계산
+            work_date = job.work_date
+            if not work_date and job.photos:
+                timestamps = [p.meta_timestamp for p in job.photos if p.meta_timestamp]
+                work_date = min(timestamps) if timestamps else datetime.now()
+            elif not work_date:
+                work_date = datetime.now()
+            
+            job_info = {
+                "contractor": contractor,
+                "date": work_date.strftime("%Y.%m.%d")
+            }
 
-            # Determine work_date
-            work_date_final = job.work_date
-            if not work_date_final and job.photos:
-                # Get the earliest meta_timestamp from photos
-                photo_timestamps = [p.meta_timestamp for p in job.photos if p.meta_timestamp]
-                if photo_timestamps:
-                    work_date_final = min(photo_timestamps)
-                else:
-                    work_date_final = datetime.now() # Fallback if no meta_timestamp found in photos
-            elif not work_date_final:
-                work_date_final = datetime.now() # Fallback if no work_date and no photos
+            # Cluster 데이터 구조화
+            stmt_c = (
+                select(Cluster)
+                .where(Cluster.job_id == job.id)
+                .where(Cluster.name != 'reserve')
+                .order_by(Cluster.order_index.asc())
+            )
+            result_c = await session.execute(stmt_c)
+            clusters_db = result_c.scalars().all()
 
-            date_str = work_date_final.strftime("%Y.%m.%d")
-
-
-            # --------- PDF 파일 준비 ---------
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tmp_pdf_path = Path(tmpdir) / f"job_{export_job.id}_{int(datetime.now().timestamp())}.pdf"
-                c = canvas.Canvas(str(tmp_pdf_path), pagesize=A4)
-                width, height = A4
-
-                # 레이아웃 기본 값
-                margin_x = 30
-                margin_top = 30
-                margin_bottom = 30
-
-                table_left = margin_x
-                table_right = width - margin_x
-                table_top = height - margin_top
-                table_bottom = margin_bottom
-
-                # 새 레이아웃: 2열 (라벨 / 이미지)
-                # 라벨 컬럼 너비
-                label_col_w = 100 # "작업" + "공종" 너비 합친 개념
-                header_h = 60      # 상단 제목 행 높이
-
-                content_height = table_top - table_bottom - header_h
-                row_h = content_height / 3.0  # 전/중/후 3행
-
-                # --------- Cluster 목록 조회 ---------
-                result = await session.execute(
-                    select(Cluster)
-                    .where(Cluster.job_id == job_id)
-                    .order_by(Cluster.order_index.asc())
-                )
-                clusters = result.scalars().all()
-
-                for cluster in clusters:
-                    # 페이지마다 동일한 프레임/표 구조
-
-                    # 외곽 테두리
-                    c.rect(table_left, table_bottom,
-                           table_right - table_left,
-                           table_top - table_bottom)
-
-                    # 세로 선 (라벨 열과 이미지 열 구분)
-                    x_col_split = table_left + label_col_w
-                    c.line(x_col_split, table_bottom, x_col_split, table_top)
-
-                    # 가로 선 (header, 전/중/후 구분)
-                    y_header_bottom = table_top - header_h
-                    c.line(table_left, y_header_bottom, table_right, y_header_bottom)  # header 아래
-
-                    y_row1_bottom = y_header_bottom - row_h
-                    y_row2_bottom = y_row1_bottom - row_h
-                    
-                    c.line(table_left, y_row1_bottom, x_col_split, y_row1_bottom) # 라벨 열의 전/중 구분
-                    c.line(table_left, y_row2_bottom, x_col_split, y_row2_bottom) # 라벨 열의 중/후 구분
-
-                    # --------- "작업 \ 공종" 대각선 텍스트 ---------
-                    # 대각선 그리기
-                    c.line(table_left, y_header_bottom, x_col_split, table_top)
-
-                    # "작업" 텍스트 (아래 왼쪽)
-                    c.setFont("NanumGothic", 10)
-                    c.drawCentredString(table_left + label_col_w / 4, y_header_bottom + header_h / 4, "작업")
-                    
-                    # "공종" 텍스트 (위 오른쪽)
-                    c.drawCentredString(table_left + label_col_w * 3 / 4, table_top - header_h / 4, "공종")
-
-                    # --------- "전/중/후" 라벨 ---------
-                    row_labels = ["전", "중", "후"]
-                    row_bottoms = [y_row1_bottom, y_row2_bottom, table_bottom]
-                    row_tops = [y_header_bottom, y_row1_bottom, y_row2_bottom]
-                    for label, yb, yt in zip(row_labels, row_bottoms, row_tops):
-                        _draw_vertical_text( # 기존 함수 재활용. 세로 텍스트가 아니므로 변경 필요
-                            c,
-                            x=table_left + label_col_w / 2.0,
-                            y_bottom=yb,
-                            y_top=yt,
-                            text=label,
-                            font_size=14,
-                        )
-
-                    # --------- 상단 제목(공종명 + 차수 등) ---------
-                    c.setFont("NanumGothic-Bold", 14)
-                    title = cluster.name or f"Cluster #{cluster.id}"
-                    c.drawString(
-                        x_col_split + 12,
-                        table_top - header_h / 2.0,
-                        title,
-                    )
-
-                    # --------- 사진들 조회 (deleted_at 이 없는 것만, 순서대로) ---------
-                    result_p = await session.execute(
-                        select(Photo)
-                        .where(
-                            Photo.cluster_id == cluster.id,
-                            Photo.deleted_at.is_(None),
-                        )
-                        .order_by(Photo.order_index.asc())
-                    )
-                    photos = result_p.scalars().all()
-
-                    # GCS/S3 스토리지 클라이언트 초기화 (필요시)
-                    storage_client_for_photos = None
-                    if settings.STORAGE_TYPE in ["gcs", "s3"]:
-                        storage_client_for_photos = get_storage_client()
-
-                    # 전/중/후 3장 기준으로 배치 (사진이 더 적어도 상관없음)
-                    image_x = x_col_split + 5
-                    image_w = table_right - image_x - 5
-
-                    for idx in range(3):
-                        if idx >= len(photos):
-                            break  # 사진이 부족하면 그 행은 비워둠
-
-                        photo = photos[idx]
-
-                        image_path = None
-                        if storage_client_for_photos: # GCS/S3의 경우 photo.url에서 이미지 다운로드
-                            try:
-                                if photo.url:
-                                    # Construct a unique temporary file path for the image
-                                    # Use a hash or a similar unique identifier to avoid name clashes
-                                    # And preserve the original extension if possible
-                                    image_filename = Path(photo.url).name
-                                    temp_image_path = Path(tmpdir) / image_filename
-
-                                    # Download the file
-                                    await storage_client_for_photos.download_file(photo.url, temp_image_path)
-                                    image_path = temp_image_path
-                                else:
-                                    logger.warning(f"Photo {photo.id} has no URL for GCS/S3 storage.")
-                            except Exception as download_e:
-                                logger.error(f"Failed to download image {photo.id} from {photo.url}: {download_e}")
-                        
-                        if not image_path: # Fallback for local or if cloud download failed
-                            # 실제 이미지 파일 경로 가져오기
-                            #    없으면 original_filename 기반으로 /app/assets/uploads 아래에서 찾게 수정
-                            image_path = Path("/app/assets") / Path(photo.storage_path)  # 실제 필드명에 맞게 수정
-                        
-                        # 이 행의 top / bottom
-                        row_top = row_tops[idx]
-                        row_bottom = row_bottoms[idx]
-
-                        image_y = row_bottom + 5
-                        image_h = row_top - image_y - 5
-
-                        try:
-                            # Ensure image_path is a string for c.drawImage
-                            if image_path:
-                                c.drawImage(
-                                    str(image_path),
-                                    image_x,
-                                    image_y,
-                                    width=image_w,
-                                    height=image_h,
-                                    preserveAspectRatio=True,
-                                    anchor="sw",
-                                )
-                            else:
-                                c.setFont("NanumGothic", 10)
-                                c.drawString(image_x, row_top - 20, f"이미지 로드 실패: 경로 없음")
-                        except Exception as e:
-                            logger.error(f"Failed to Draw Image: {e}")
-                            raise e
-                        
-                        # --------- 사진 위에 "일자 / 시행처" 박스 ---------
-                        label_w = 160
-                        label_h = 40
-                        c.setFillColorRGB(1, 1, 1)
-                        c.rect(
-                            image_x,
-                            image_y + image_h - label_h,
-                            label_w,
-                            label_h,
-                            fill=1,
-                            stroke=1,
-                        )
-                        c.setFillColorRGB(0, 0, 0)
-                        c.setFont("NanumGothic", 9)
-                        c.drawString(
-                            image_x + 6,
-                            image_y + image_h - 15,
-                            f"일자 : {date_str}",
-                        )
-                        c.drawString(
-                            image_x + 6,
-                            image_y + image_h - 30,
-                            f"시행처 : {contractor}",
-                        )
-                    # 페이지 종료
-                    c.showPage()
-                c.save()
-
-                final_pdf_path = None
+            # 2. [I/O] 파일 다운로드 및 준비 (임시 디렉토리 사용)
+            with tempfile.TemporaryDirectory() as tmpdir_str:
+                tmpdir = Path(tmpdir_str)
                 storage_client = get_storage_client()
-                file_name = tmp_pdf_path.name
                 
-                if settings.STORAGE_TYPE == "local":
-                    # For local storage, save to a persistent path within MEDIA_ROOT
-                    local_storage_dir = Path(settings.MEDIA_ROOT) / "exports"
-                    local_storage_dir.mkdir(parents=True, exist_ok=True)
-                    persistent_pdf_path = local_storage_dir / file_name
+                # A. 템플릿 다운로드 (GCS)
+                template_local_path = tmpdir / "template_base.pdf"
+                try:
+                    if settings.STORAGE_TYPE in ["gcs", "s3"]:
+                        # download_file이 비동기라고 가정 (aiobotocore/gcloud-aio 등)
+                        # 만약 동기 라이브러리면 await 제거 필요
+                        await storage_client.download_file(LAYOUT.TEMPLATE_GCS_PATH, template_local_path)
+                    else:
+                        # 로컬 개발 환경용 fallback
+                        import shutil
+                        shutil.copy("/app/assets/template1.pdf", template_local_path)
+                        pass
+                except Exception as e:
+                    logger.error(f"Template download failed: {e}")
+                    raise e
+
+                # B. 사진 다운로드 및 데이터 구조 생성
+                processed_clusters = []
+                for cluster in clusters_db:
+                    cluster_data = {"name": cluster.name or f"Cluster #{cluster.id}", "photos": []}
                     
-                    # Copy the generated PDF from temp to persistent storage
+                    # 해당 클러스터 사진 조회
+                    stmt_p = (
+                        select(Photo)
+                        .where(Photo.cluster_id == cluster.id, Photo.deleted_at.is_(None))
+                        .order_by(Photo.order_index.asc())
+                        .limit(3)
+                    )
+                    res_p = await session.execute(stmt_p)
+                    photos_db = res_p.scalars().all()
+
+                    for photo in photos_db:
+                        photo_local_path = tmpdir / Path(photo.url).name
+                        
+                        # 사진 다운로드
+                        if settings.STORAGE_TYPE in ["gcs", "s3"] and photo.url:
+                            try:
+                                await storage_client.download_file(photo.url, photo_local_path)
+                            except Exception as e:
+                                logger.warning(f"Photo download failed {photo.id}: {e}")
+                                photo_local_path = None
+                        else:
+                            # Local Storage Path Logic
+                            photo_local_path = Path("/app/assets") / photo.storage_path
+
+                        cluster_data["photos"].append({
+                            "local_path": photo_local_path
+                        })
+                    
+                    processed_clusters.append(cluster_data)
+
+                # 3. [CPU Bound] PDF 생성 (별도 스레드에서 실행)
+                # PyMuPDF 작업은 동기식이므로 메인 루프를 블로킹하지 않게 run_in_executor 사용
+                pdf_gen = PDFGenerator(tmpdir_str)
+                
+                loop = asyncio.get_event_loop()
+                # executor에서 실행할 함수 래핑
+                def _run_gen():
+                    return pdf_gen.generate(job_info, processed_clusters, template_local_path)
+
+                generated_pdf_path = await loop.run_in_executor(None, _run_gen)
+
+                if not generated_pdf_path:
+                    raise Exception("PDF Generation returned None")
+
+                # 4. [I/O] 결과 업로드
+                file_name = f"Job_{job.id}_Report.pdf"
+                final_url = None
+
+                if settings.STORAGE_TYPE in ["gcs", "s3"]:
+                    storage_path = f"{user.user_id}/{job.id}/exports/{file_name}"
+                    async with aiofiles.open(generated_pdf_path, 'rb') as f:
+                        await storage_client.save_file(f, storage_path, content_type="application/pdf")
+                    final_url = storage_client.get_url(storage_path)
+                else:
+                    # Local save logic
+                    target_dir = Path(settings.MEDIA_ROOT) / "exports"
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    target_path = target_dir / file_name
                     import shutil
-                    shutil.copy(tmp_pdf_path, persistent_pdf_path)
-                    
-                    final_pdf_path = str(persistent_pdf_path)
-                    # For local storage, we also need a URL to serve it
-                    final_pdf_path = f"{settings.MEDIA_URL}/exports/{file_name}"
+                    shutil.copy(generated_pdf_path, target_path)
+                    final_url = f"{settings.MEDIA_URL}/exports/{file_name}"
 
-                elif settings.STORAGE_TYPE in ["gcs", "s3"]:
-                    try:
-                        # 저장 경로: {user_id}/{job_id}/exports/{filename}
-                        storage_path = f"{user.user_id}/{job_id}/exports/{file_name}"
-                        
-                        async with aiofiles.open(tmp_pdf_path, 'rb') as f:
-                            await storage_client.save_file(f, storage_path, content_type="application/pdf")
-                        
-                        # 업로드 후 URL 또는 경로로 업데이트
-                        final_pdf_path = storage_client.get_url(storage_path)
-
-                        # 로컬 임시 파일 삭제는 tempfile.TemporaryDirectory가 처리
-                    except Exception as e:
-                        logger.error(f"Failed to upload PDF to storage: {e}")
-                        raise e
-                
-                # If for some reason final_pdf_path is still None (e.g., storage type not handled),
-                # it might be an error or a case to default.
-                # For now, if local_storage, we construct URL. If cloud, we get URL.
-                # If neither is set, final_pdf_path might be None.
-                if final_pdf_path is None:
-                    logger.error(f"Failed to determine final PDF path for storage type: {settings.STORAGE_TYPE}")
-                    export_job.status = ExportStatus.FAILED
-                    export_job.error_message = "Failed to determine final PDF storage path."
-                    await session.commit()
-                    return
-
-            export_job.status = ExportStatus.EXPORTED
-            export_job.pdf_path = final_pdf_path
-            export_job.finished_at = datetime.now()
-            await session.commit()
-
-        except Exception as e:
-            # 실패 시 상태 업데이트
-            if export_job is None:
-                result = await session.execute(
-                    select(ExportJob).where(ExportJob.id == export_job_id)
-                )
-                export_job = result.scalars().first()
-
-            if export_job:
-                export_job.status = ExportStatus.FAILED
-                export_job.error_message = str(e)
+                # 완료 처리
+                export_job.status = ExportStatus.EXPORTED
+                export_job.pdf_path = final_url
                 export_job.finished_at = datetime.now()
                 await session.commit()
-        finally:
-            await session.close()
+                
+                logger.info(f"PDF Generated successfully: {final_url}")
+
+        except Exception as e:
+            logger.exception("PDF Generation Failed")
+            export_job.status = ExportStatus.FAILED
+            export_job.error_message = str(e)
+            export_job.finished_at = datetime.now()
+            await session.commit()
