@@ -14,6 +14,7 @@ from app.schemas.job import (
     FileResponse,
     JobClusterRequest,
     JobDetailsResponse,
+    JobExportRequest,
     JobRequest,
     JobResponse,
     JobStatusResponse,
@@ -232,11 +233,18 @@ async def start_cluster(
 @router.post("/jobs/{job_id}/export", response_model=ExportStatusResponse, status_code=status.HTTP_202_ACCEPTED)
 async def start_export(
     job_id: str,
+    payload: JobExportRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
     service = JobService(db)
-    export_job = await service.start_export(job_id=job_id, background_tasks=background_tasks)
+    export_job = await service.start_export(
+        job_id=job_id, 
+        background_tasks=background_tasks,
+        title=payload.title,
+        construction_type=payload.construction_type,
+        company_name=payload.company_name
+    )
     return ExportStatusResponse(
         status=export_job.status
     )

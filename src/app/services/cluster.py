@@ -5,7 +5,7 @@ from app.models.cluster import Cluster
 from app.models.job import Job
 from app.models.photo import Photo
 from fastapi import HTTPException
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -112,13 +112,21 @@ class ClusterService:
         return cluster
     
     async def delete_cluster(self, job_id: str, cluster_id: str):
+        # Unassign photos first to avoid Foreign Key violation
+        await self.db.execute(
+            update(Photo)
+            .where(Photo.cluster_id == cluster_id)
+            .values(cluster_id=None)
+        )
+
         result = await self.db.execute(
             delete(Cluster)
             .where(Cluster.id == cluster_id)
             .returning(Cluster.order_index)
         )
         idx = result.scalars().first()
-        if idx:
+        
+        if idx is not None:
             result = await self.db.execute(
                 select(Cluster)
                 .where(Cluster.order_index > idx)

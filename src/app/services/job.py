@@ -318,12 +318,22 @@ class JobService:
         )
         return job, data
 
-    async def start_export(self, job_id: str, background_tasks: BackgroundTasks):
+    async def start_export(self, job_id: str, background_tasks: BackgroundTasks, title: Optional[str] = None, construction_type: Optional[str] = None, company_name: Optional[str] = None):
         result = await self.db.execute(select(Job).where(Job.id == job_id))
         job = result.scalars().first()
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         
+        # Update job metadata if provided
+        if title:
+            job.title = title
+        if construction_type:
+            job.construction_type = construction_type
+        if company_name:
+            job.company_name = company_name
+        await self.db.commit()
+        await self.db.refresh(job)
+
         result = await self.db.execute(
             select(ExportJob)
             .where(ExportJob.job_id == job_id)
@@ -335,7 +345,8 @@ class JobService:
             ExportStatus.PENDING,
             ExportStatus.PROCESSING,
         }:
-            raise HTTPException(status_code=400, detail="Export already in progress")
+            # If already in progress, just return the existing one
+            return export_job
 
         export_job = ExportJob(job_id=job.id, status=ExportStatus.PENDING)
         self.db.add(export_job)

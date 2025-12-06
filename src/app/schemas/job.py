@@ -17,6 +17,12 @@ class JobClusterRequest(BaseModel):
     max_alt_diff_m: Optional[float] = 20.0
 
 
+class JobExportRequest(BaseModel):
+    title: Optional[str] = None
+    construction_type: Optional[str] = None
+    company_name: Optional[str] = None
+
+
 class JobResponse(BaseModel):
     id: str
     title: Optional[str] = None

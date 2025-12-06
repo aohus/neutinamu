@@ -106,7 +106,7 @@ class PDFGenerator:
     def generate(self, job_info: dict, clusters: List[dict], template_local_path: Path) -> str:
         """
         메인 생성 로직 (CPU Bound)
-        :param job_info: {contractor, date_str, ...}
+        :param job_info: {company_name, date_str, ...}
         :param clusters: [{name, photos: [{path, ...}]}, ...]
         :param template_local_path: 다운로드 된 템플릿 경로
         :return: 생성된 PDF 경로
@@ -234,7 +234,7 @@ class PDFGenerator:
         )
 
         # 텍스트
-        text = f"일자 : {job_info['date']}\n시행처 : {job_info['contractor']}"
+        text = f"일자 : {job_info['date']}\n시행처 : {job_info['company_name']}"
         page.insert_textbox(
             text_rect,
             text,
@@ -275,10 +275,11 @@ async def generate_pdf_for_session(export_job_id: str):
             user = job.user
             
             # 메타데이터 준비
-            contractor = job.contractor_name or (user.company_name if user else "") or "Unknown"
+            company_name = job.company_name or (user.company_name if user else "") or "Unknown"
             
             # 날짜 계산
-            work_date = job.work_date
+            # work_date = job.work_date
+            work_date = None
             if not work_date and job.photos:
                 timestamps = [p.meta_timestamp for p in job.photos if p.meta_timestamp]
                 work_date = min(timestamps) if timestamps else datetime.now()
@@ -286,7 +287,7 @@ async def generate_pdf_for_session(export_job_id: str):
                 work_date = datetime.now()
             
             job_info = {
-                "contractor": contractor,
+                "company_name": company_name,
                 "date": work_date.strftime("%Y.%m.%d")
             }
 
