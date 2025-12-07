@@ -131,12 +131,26 @@ async def _create_clusters_from_result(
     )
     session.add(db_cluster)
 
-    job_title = job.title
+    base_name = job.construction_type if job.construction_type else job.title
+
     for cluster_index, photo_group in enumerate(cluster_groups):
+        if not photo_group:
+            continue
+
+        # Determine cluster name
+        first_photo = photo_group[0]
+        # Assuming all photos in a group either have GPS or don't
+        is_no_gps = first_photo.lat is None or first_photo.lon is None
+        
+        if is_no_gps:
+            cluster_name = "위치 정보 없음"
+        else:
+            cluster_name = base_name
+
         # 1) Cluster 레코드 생성
         db_cluster = Cluster(
             job_id=job_id,
-            name=f"{job_title}",
+            name=cluster_name,
             order_index=cluster_index,
         )
         session.add(db_cluster)
