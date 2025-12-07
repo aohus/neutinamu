@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
+    
+    # Monitoring
+    SENTRY_DSN: Optional[str] = None
 
     # Clustering defaults
     MIN_SAMPLES: int = 3

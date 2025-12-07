@@ -5,6 +5,8 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import sentry_sdk
+
 from app.api.api import api_router
 from app.core.config import settings
 from app.core.logger import setup_logging
@@ -20,6 +22,15 @@ if str(PROJECT_ROOT) not in sys.path:
 
 setup_logging()
 logger = logging.getLogger(__name__)
+
+
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=str(settings.SENTRY_DSN),
+        traces_sample_rate=1.0,
+        environment=settings.ENVIRONMENT,
+    )
+    logger.info("Sentry initialized.")
 
 
 @asynccontextmanager
