@@ -196,13 +196,43 @@ class GPSCluster(Clusterer):
     def _cluster_hdbscan(self, photos: List[PhotoMeta]) -> List[List[PhotoMeta]]:
         """
         Cluster using HDBSCAN with relative density.
+        - Pre-processing: Merges photos taken within 5 seconds into a single representative point.
         - min_samples=1: Reduces noise classification (prevents close points from becoming singletons).
         - cluster_selection_epsilon=5m: Ensures points within 5m are merged, fixing over-splitting of close points.
         """
         if len(photos) < 2:
             return [photos]
 
-        coords = np.radians([[p.lat, p.lon] for p in photos])
+        # 1. Sort by timestamp (handle None by putting them at the end)
+        sorted_photos = sorted(photos, key=lambda x: x.timestamp if x.timestamp is not None else float('inf'))
+
+        # 2. Group photos within 5 seconds
+        grouped_photos = []
+        if sorted_photos:
+            current_group = [sorted_photos[0]]
+            for i in range(1, len(sorted_photos)):
+                prev = current_group[-1]
+                curr = sorted_photos[i]
+                
+                # Check timestamp difference (only if both have valid timestamps)
+                if (prev.timestamp is not None and curr.timestamp is not None and 
+                    (curr.timestamp - prev.timestamp) <= 5):
+                    current_group.append(curr)
+                else:
+                    grouped_photos.append(current_group)
+                    current_group = [curr]
+            grouped_photos.append(current_group)
+
+        # 3. Create representatives (centroids)
+        repr_coords = []
+        for group in grouped_photos:
+            lats = [p.lat for p in group]
+            lons = [p.lon for p in group]
+            avg_lat = sum(lats) / len(lats)
+            avg_lon = sum(lons) / len(lons)
+            repr_coords.append([avg_lat, avg_lon])
+            
+        coords = np.radians(repr_coords)
         
         # Use HDBSCAN defaults for variable density clustering
         clusterer = hdbscan.HDBSCAN(
@@ -213,9 +243,14 @@ class GPSCluster(Clusterer):
             cluster_selection_epsilon=5.0 / 6371000.0, # Merge clusters closer than 5m
             allow_single_cluster=True 
         )
-        labels = clusterer.fit_predict(coords)
+        repr_labels = clusterer.fit_predict(coords)
         
-        return self._group_by_labels(photos, labels)
+        # 4. Map labels back to original photos
+        final_labels = []
+        for i, label in enumerate(repr_labels):
+            final_labels.extend([label] * len(grouped_photos[i]))
+        
+        return self._group_by_labels(sorted_photos, np.array(final_labels))
 
     def _cluster_optics(self, photos: List[PhotoMeta]) -> List[List[PhotoMeta]]:
         coords = np.radians([[p.lat, p.lon] for p in photos])
