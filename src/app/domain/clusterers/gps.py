@@ -24,26 +24,162 @@ class GPSCluster(Clusterer):
     def __init__(self):
         self.max_dist_m = 20
         self.min_samples = 2
+        self.geod = Geod(ellps="WGS84")
         
     async def cluster(self, photos: List[PhotoMeta]) -> List[List[PhotoMeta]]:
-        # GPS 오차 보정: 20초 이내 연속 촬영 시 선행 사진의 위치를 후행 사진 기준으로 보정
         self._adjust_gps_inaccuracy(photos)
+        self._correct_outliers_by_speed(photos)
 
         valid_photos = [p for p in photos if p.lat is not None and p.lon is not None]
         no_gps_photos = [p for p in photos if p.lat is None or p.lon is None]
         
         if not valid_photos:
-            return [[p] for p in photos]
+            return [photos]
 
         if HAS_HDBSCAN:
             clusters = self._cluster_hdbscan(valid_photos)
         else:
             clusters = self._cluster_optics(valid_photos)
             
-        for p in no_gps_photos:
-            clusters.append([p])
+        # 노이즈(1개짜리 클러스터)를 시간상 직전 사진이 포함된 클러스터로 병합
+        # clusters = self._merge_noise_to_prev_cluster(clusters)
             
+        if no_gps_photos:
+            clusters.append(no_gps_photos)
         return clusters
+
+    def _correct_outliers_by_speed(self, photos: List[PhotoMeta]) -> None:                                                                                                                                                                                                                      
+        """                                                                                                                                                                                                                                                                                     
+        도보 이동 기준 속도(5m/s)를 초과하는 GPS 튐 현상을 감지하여,                                                                                                                                                                                                                            
+        이전 위치로 보정합니다. (튀는 점 제거 효과)                                                                                                                                                                                                                                             
+        """                                                                                                                                                                                                                                                                                     
+        timed_photos = [p for p in photos if p.timestamp is not None and p.lat is not None]                                                                                                                                                                                                     
+        timed_photos.sort(key=lambda x: x.timestamp)                                                                                                                                                                                                                                            
+                                                                                                                                                                                                                                                                                                
+        max_speed_mps = 4.0 # 도보 기준 넉넉하게 약 18km/h                                                                                                                                                                                                                                      
+                                                                                                                                                                                                                                                                                                
+        for i in range(1, len(timed_photos)):                                                                                                                                                                                                                                                   
+            prev = timed_photos[i-1]                                                                                                                                                                                                                                                            
+            curr = timed_photos[i]                                                                                                                                                                                                                                                              
+                                                                                                                                                                                                                                                                                                
+            dt = curr.timestamp - prev.timestamp                                                                                                                                                                                                                                                
+            if dt <= 0: continue                                                                                                                                                                                                                                                                
+                                                                                                                                                                                                                                                                                                
+            # 거리 계산 (pyproj Geod 사용)                                                                                                                                                                                                                                                      
+            # inv(lon1, lat1, lon2, lat2) -> az12, az21, dist                                                                                                                                                                                                                                   
+            _, _, dist = self.geod.inv(prev.lon, prev.lat, curr.lon, curr.lat)                                                                                                                                                                                                                  
+                                                                                                                                                                                                                                                                                                
+            speed = dist / dt                                                                                                                                                                                                                                                                   
+                                                                                                                                                                                                                                                                                                
+            if speed > max_speed_mps:                                                                                                                                                                                                                                                           
+                logger.info(f"GPS Outlier detected: {curr.original_name} (Speed: {speed:.2f} m/s). Correcting to previous location.")                                                                                                                                                           
+                # 이전 유효 위치로 강제 보정                                                                                                                                                                                                                                                    
+                curr.lat = prev.lat                                                                                                                                                                                                                                                             
+                curr.lon = prev.lon                                                                                                                                                                                                                                                             
+                # 고도가 있다면 함께 보정                                                                                                                                                                                                                                                       
+                if prev.alt is not None:                                                                                                                                                                                                                                                        
+                    curr.alt = prev.alt  
+
+    def _merge_noise_to_prev_cluster(self, clusters: List[List[PhotoMeta]]) -> List[List[PhotoMeta]]:
+        """
+        1개짜리 클러스터(노이즈)를 시간상 바로 직전 사진이 속한 '정상 클러스터(2개 이상)'에 병합합니다.
+        직전 사진이 없거나, 직전 사진도 노이즈라면 병합하지 않습니다(또는 로직에 따라 처리).
+        여기서는 '2개 이상인 클러스터'에 속한 사진들 중에서 가장 가까운 과거 사진을 찾습니다.
+        """
+        # 1. 클러스터 분류
+        valid_clusters = [] # 리스트로 유지 (수정 가능해야 함)
+        noise_clusters = []
+        
+        for c in clusters:
+            if len(c) >= 2:
+                valid_clusters.append(c)
+            else:
+                noise_clusters.append(c)
+        
+        if not valid_clusters:
+            return clusters
+
+        # 2. 유효 클러스터 내의 모든 사진을 시간순 정렬하여 검색 인덱스 생성
+        # (timestamp, cluster_index) 튜플 리스트
+        # timestamp가 없는 경우 제외
+        valid_photos_map = []
+        for idx, cluster in enumerate(valid_clusters):
+            for p in cluster:
+                if p.timestamp is not None:
+                    valid_photos_map.append((p.timestamp, idx))
+        
+        valid_photos_map.sort(key=lambda x: x[0])
+        
+        # 병합되지 못한 노이즈들
+        remaining_noise = []
+
+        for noise_c in noise_clusters:
+            noise_p = noise_c[0]
+            if noise_p.timestamp is None:
+                remaining_noise.append(noise_c)
+                continue
+                
+            # 이 노이즈 사진보다 시간이 이르면서 가장 가까운 사진 찾기
+            # valid_photos_map은 시간순 정렬되어 있으므로 bisect 등을 쓸 수도 있지만,
+            # 간단히 역순 순회하거나 조건에 맞는 마지막 요소 찾기
+            
+            target_cluster_idx = -1
+            
+            # 시간순 정렬되어 있으므로, noise_p.timestamp보다 작은 것 중 가장 큰(마지막) 것 찾기
+            # 이진 탐색(bisect_left)을 쓰면 더 빠르겠지만 데이터 크기가 크지 않다고 가정
+            import bisect
+
+            # bisect는 키 비교가 복잡하므로 단순 순회 (또는 키만 추출한 리스트 사용)
+            timestamps = [vp[0] for vp in valid_photos_map]
+            insert_pos = bisect.bisect_left(timestamps, noise_p.timestamp)
+            
+            if insert_pos > 0:
+                # insert_pos - 1 이 바로 직전 시간의 사진
+                _, target_cluster_idx = valid_photos_map[insert_pos - 1]
+                
+                # 병합 수행
+                valid_clusters[target_cluster_idx].append(noise_p)
+                # 병합 후 valid_photos_map 업데이트는 하지 않음 (한 번의 패스로 처리)
+                # 만약 노이즈가 연달아 있다면? 
+                # 요구사항: "시간상 직전인 사진이 포함된 클러스터" -> 직전이 노이즈였고 걔가 어딘가 병합되었다면?
+                # 현재 로직: "이미 2개 이상으로 확정된 클러스터" 기준. 
+                # 즉, 노이즈->노이즈->클러스터 병합 체인은 지원 안 함. (복잡도 방지)
+            else:
+                remaining_noise.append(noise_c)
+
+        return valid_clusters + remaining_noise
+
+    def _adjust_gps_inaccuracy(self, photos: List[PhotoMeta]) -> None:
+        """
+        도보 이동 기준 속도(5m/s)를 초과하는 GPS 튐 현상을 감지하여,
+        이전 위치로 보정합니다. (튀는 점 제거 효과)
+        """
+        timed_photos = [p for p in photos if p.timestamp is not None and p.lat is not None]
+        timed_photos.sort(key=lambda x: x.timestamp)
+        
+        max_speed_mps = 3.0 # 도보 기준 넉넉하게 약 18km/h
+
+        for i in range(1, len(timed_photos)):
+            prev = timed_photos[i-1]
+            curr = timed_photos[i]
+            
+            dt = curr.timestamp - prev.timestamp
+            if dt <= 0: continue
+            
+            # 거리 계산 (pyproj Geod 사용)
+            # inv(lon1, lat1, lon2, lat2) -> az12, az21, dist
+            _, _, dist = self.geod.inv(prev.lon, prev.lat, curr.lon, curr.lat)
+            
+            speed = dist / dt
+            
+            if speed > max_speed_mps:
+                logger.info(f"GPS Outlier detected: {curr.original_name} (Speed: {speed:.2f} m/s). Correcting to previous location.")
+                # 이전 유효 위치로 강제 보정
+                curr.lat = prev.lat
+                curr.lon = prev.lon
+                # 고도가 있다면 함께 보정
+                if prev.alt is not None:
+                    curr.alt = prev.alt
 
     def _adjust_gps_inaccuracy(self, photos: List[PhotoMeta]) -> None:
         """
@@ -63,11 +199,9 @@ class GPSCluster(Clusterer):
 
             # 시간 차이 계산
             diff = (p2.timestamp - p1.timestamp)
-            logger.info(f"=============================={diff}")
 
             # 20초 이내이고, p2(후행 사진)가 유효한 위치 정보를 가지고 있다면
             if 0 <= diff <= 20:
-                logger.info(f"=============================={p1.original_name}, {p2.original_name}")
                 if p2.lat is not None and p2.lon is not None:
                     p1.lat = p2.lat
                     p1.lon = p2.lon
@@ -78,7 +212,8 @@ class GPSCluster(Clusterer):
     def _cluster_hdbscan(self, photos: List[PhotoMeta]) -> List[List[PhotoMeta]]:
         """
         Cluster using HDBSCAN with relative density.
-        We do not enforce a fixed cluster_selection_epsilon to allow for varying densities.
+        - min_samples=1: Reduces noise classification (prevents close points from becoming singletons).
+        - cluster_selection_epsilon=5m: Ensures points within 5m are merged, fixing over-splitting of close points.
         """
         if len(photos) < 2:
             return [photos]
@@ -88,10 +223,10 @@ class GPSCluster(Clusterer):
         # Use HDBSCAN defaults for variable density clustering
         clusterer = hdbscan.HDBSCAN(
             min_cluster_size=self.min_samples, # default 2
-            min_samples=self.min_samples,      # default 2
+            min_samples=1,                     # Reduced to 1 to minimize noise (singletons)
             metric='haversine',
             cluster_selection_method='eom',
-            # cluster_selection_epsilon is omitted/0.0 to allow detecting clusters of varying densities
+            cluster_selection_epsilon=5.0 / 6371000.0, # Merge clusters closer than 5m
             allow_single_cluster=True 
         )
         labels = clusterer.fit_predict(coords)
@@ -120,8 +255,8 @@ class GPSCluster(Clusterer):
                 clusters.setdefault(label, []).append(p)
         
         result = list(clusters.values())
-        for p in noise:
-            result.append([p])
+        if noise:
+            result.append(noise)
         return result
 
 
