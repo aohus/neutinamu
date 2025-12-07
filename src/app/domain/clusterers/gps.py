@@ -43,6 +43,8 @@ class GPSCluster(Clusterer):
             
         # 노이즈(1개짜리 클러스터)를 시간상 직전 사진이 포함된 클러스터로 병합
         clusters = self._merge_noise_to_prev_cluster(clusters)
+        # 2개짜리 미완성 클러스터끼리 병합 (20m 이내)
+        clusters = self._merge_incomplete_clusters(clusters)
             
         if no_gps_photos:
             clusters.append(no_gps_photos)
@@ -132,6 +134,55 @@ class GPSCluster(Clusterer):
                 remaining_noise.append(noise_c)
 
         return valid_clusters + remaining_noise
+
+    def _merge_incomplete_clusters(self, clusters: List[List[PhotoMeta]]) -> List[List[PhotoMeta]]:
+        """
+        2개짜리 미완성 클러스터끼리 거리가 30m 이내이면 병합합니다.
+        가장 가까운 클러스터끼리 우선 병합합니다.
+        """
+        while True:
+            small_clusters_indices = [i for i, c in enumerate(clusters) if len(c) == 2]
+            
+            if len(small_clusters_indices) < 2:
+                break
+                
+            min_dist = 20.0
+            pair_to_merge = None
+            
+            # Find the closest pair of size-2 clusters
+            for i in range(len(small_clusters_indices)):
+                idx1 = small_clusters_indices[i]
+                c1 = clusters[idx1]
+                
+                # Calculate centroid 1
+                lat1 = sum(p.lat for p in c1) / 2
+                lon1 = sum(p.lon for p in c1) / 2
+                
+                for j in range(i + 1, len(small_clusters_indices)):
+                    idx2 = small_clusters_indices[j]
+                    c2 = clusters[idx2]
+                    
+                    # Calculate centroid 2
+                    lat2 = sum(p.lat for p in c2) / 2
+                    lon2 = sum(p.lon for p in c2) / 2
+                    
+                    # Distance
+                    _, _, dist = self.geod.inv(lon1, lat1, lon2, lat2)
+                    
+                    if dist < min_dist:
+                        min_dist = dist
+                        pair_to_merge = (idx1, idx2)
+            
+            if pair_to_merge:
+                idx1, idx2 = pair_to_merge
+                # Merge idx2 into idx1
+                clusters[idx1].extend(clusters[idx2])
+                # Remove idx2
+                clusters.pop(idx2) 
+            else:
+                break
+                
+        return clusters
 
     def _adjust_gps_inaccuracy(self, photos: List[PhotoMeta]) -> None:
         """
