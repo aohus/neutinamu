@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 from app.domain.storage import StorageService
 from app.models.cluster import Cluster
@@ -116,7 +117,8 @@ class ClusterService:
         await self.db.execute(
             update(Photo)
             .where(Photo.cluster_id == cluster_id)
-            .values(cluster_id=None)
+            .values(cluster_id=None,
+                    deleted_at=datetime.now())
         )
 
         result = await self.db.execute(
