@@ -17,6 +17,7 @@ class ClusterCreateRequest(ClusterBase):
 
 class ClusterUpdateRequest(ClusterBase):
     new_name: Optional[str] = None
+    order_index: Optional[int] = None
 
 
 class ClusterItemSync(BaseModel):

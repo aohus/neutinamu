@@ -53,7 +53,8 @@ class ClusterService:
         if order_index > cluster_length:
             order_index = cluster_length
 
-        for idx, c in enumerate(clusters):
+        for c in clusters:
+            idx = c.order_index
             if idx >= order_index:
                 # 새 클러스터가 들어갈 자리 이후 것들은 한 칸씩 뒤로
                 c.order_index = idx + 1
@@ -85,7 +86,7 @@ class ClusterService:
         logger.info(f"Cluster '{cluster.name}' created successfully with id: {cluster.id}")
         return cluster, photos
 
-    async def update_cluster(self, job_id: str, cluster_id: str, new_name: str = None, order_index: int = 0):
+    async def update_cluster(self, job_id: str, cluster_id: str, new_name: str = None, order_index: int = None):
         """Rename a cluster."""
         logger.info(f"Updating cluster_id: {cluster_id} with new name: {new_name}")
         result = await self.db.execute(
@@ -106,10 +107,19 @@ class ClusterService:
             except Exception as e:
                 logger.error(f"Failed to rename cluster directory: {e}", exc_info=True)
                 raise HTTPException(status_code=400, detail=str(e))
-                
+        
+        original_index = cluster.order_index
+        if order_index and order_index != original_index and order_index > 0:
+            try:
+                logger.debug(f"order_index changed'{original_index}' to '{order_index}'")
+                cluster.order_index = order_index
+            except Exception as e:
+                logger.error(f"Failed to rename: {e}", exc_info=True)
+                raise HTTPException(status_code=400, detail=str(e))
+            
         await self.db.commit()
         await self.db.refresh(cluster)
-        logger.info(f"Cluster {cluster_id} renamed successfully to '{cluster.name}'")
+        logger.info(f"Cluster {cluster_id} renamed successfully to '{cluster.name or cluster.order_index}'")
         return cluster
     
     async def delete_cluster(self, job_id: str, cluster_id: str):
