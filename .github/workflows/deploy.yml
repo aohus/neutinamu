@@ -17,9 +17,9 @@ jobs:
           command_timeout: "1800s" # 30 minutes
           script: |
             # 0. 빌드 전 메모리 및 리소스 정리
-            echo "Freeing up memory and disk space..."
-            sudo sync && sudo sysctl -w vm.drop_caches=3 || true
-            docker system prune -f || true
+            # echo "Freeing up memory and disk space..."
+            # sudo sync && sudo sysctl -w vm.drop_caches=3 || true
+            # docker system prune -f || true
 
             # 1. 작업 디렉토리 생성 및 이동
             mkdir -p snap-to-report
