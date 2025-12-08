@@ -138,6 +138,50 @@ class JobService:
 
         return BatchPresignedUrlResponse(strategy=strategy, urls=response_urls)
 
+    async def generate_upload_urls(
+        self, job_id: str, files: list[PhotoUploadRequest], origin: str = None
+    ) -> BatchPresignedUrlResponse:
+        
+        # 1. Job 확인
+        result = await self.db.execute(select(Job).where(Job.id == job_id))
+        job = result.scalars().first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        # 2. Storage Client 초기화 (DI로 주입받거나 설정에서 가져옴)
+        storage = get_storage_client()
+        response_urls = []
+        
+        # MVP에서는 로컬 스토리지보다 GCS Resumable을 기본으로 추천
+
+        strategy = "resumable"
+        try:
+            # 3. 각 파일별 Session URL 생성
+            for file_req in files:
+                target_path = f"{job.user_id}/{job.id}/photos/original/{file_req.filename}"
+                
+                # 여기서 GCS와 통신하여 세션을 엽니다.
+                session_url = storage.generate_resumable_session_url(
+                    target_path=target_path,
+                    content_type=file_req.content_type,
+                    origin=origin  # 클라이언트 Origin (CORS용)
+                )
+                
+                response_urls.append(
+                    PresignedUrlResponse(
+                        filename=file_req.filename,
+                        upload_url=session_url, # 이것은 단순 URL이 아니라 이미 열린 세션 URL입니다.
+                        storage_path=target_path
+                    )
+                )
+            return BatchPresignedUrlResponse(
+                strategy=strategy,
+                urls=response_urls
+            )
+        except Exception as e:
+            logger.warning(f"Failed resumable: {e}")
+            return await self.generate_presigned_urls(job_id, files, origin)
+
     async def process_uploaded_files(
         self, job_id: str, file_info_list: list[dict]
     ) -> list[Photo]:

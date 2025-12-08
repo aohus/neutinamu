@@ -89,3 +89,7 @@ class LocalStorageService(StorageService):
     def generate_upload_url(self, path: str, content_type: str = None) -> Optional[str]:
         """Local storage does not support pre-signed URLs."""
         return None
+
+    def generate_resumable_session_url(self, path: str, content_type: str = None) -> Optional[str]:
+        """Local storage does not support pre-signed URLs."""
+        return None

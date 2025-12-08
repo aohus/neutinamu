@@ -91,6 +91,22 @@ class GCSStorageService(StorageService):
         )
         return url
 
+    def generate_resumable_session_url(self, target_path: str, content_type: str, origin: str = None) -> str:
+        """
+        GCS Resumable Upload Session을 시작하고, 
+        클라이언트가 업로드를 수행할 수 있는 Session URL을 반환합니다.
+        """
+        blob = self.bucket.blob(target_path)
+        
+        # 세션 시작 (백엔드에서 GCS로 요청을 보냄)
+        # origin 인자는 CORS Preflight를 위해 클라이언트의 도메인을 넣어주는 것이 좋습니다.
+        upload_url = blob.create_resumable_upload_session(
+            content_type=content_type,
+            origin=origin 
+        )
+        
+        return upload_url
+    
     async def download_file(self, path: str, destination_local_path: Path):
         item = path.replace(f"https://storage.googleapis.com/{self.bucket_name}/", "")
         blob = self.bucket.blob(item)

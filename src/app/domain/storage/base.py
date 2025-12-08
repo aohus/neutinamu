@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import BinaryIO, Optional
 
+
 class StorageService(ABC):
     """Abstract base class for storage services."""
 
@@ -70,5 +71,12 @@ class StorageService(ABC):
             
         Returns:
             The pre-signed URL string, or None if not supported (e.g. local storage).
+        """
+        pass
+    
+    @abstractmethod
+    def generate_resumable_session_url(self, target_path: str, content_type: str) -> str:
+        """
+        Generate a GCS Resumable Upload Session URL (POST to initiate, PUT for chunks).
         """
         pass
