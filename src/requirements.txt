@@ -30,8 +30,8 @@ PyMuPDF==1.24.0
 # reportlab>=4.0.0
 
 # Production & Monitoring
-sentry-sdk>=1.39.0
 gunicorn>=21.2.0
+# prometheus-fastapi-instrumentator>=6.1.0
 
 # Dev/Test
 pytest>=7.4.3
