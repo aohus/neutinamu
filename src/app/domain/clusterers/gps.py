@@ -7,17 +7,12 @@ import numpy as np
 from app.domain.clusterers.base import Clusterer
 from app.models.photometa import PhotoMeta
 from pyproj import Geod
-from sklearn.cluster import DBSCAN, OPTICS
+from sklearn.cluster import DBSCAN, OPTICS, HDBSCAN
 
 logger = logging.getLogger(__name__)
 
-# Try importing HDBSCAN
-try:
-    import hdbscan
-    HAS_HDBSCAN = True
-except ImportError:
-    HAS_HDBSCAN = False
-    logger.warning("HDBSCAN not found. Falling back to OPTICS/DBSCAN.")
+# Used to be conditional, now always available via sklearn
+HAS_HDBSCAN = True
 
 
 class GPSCluster(Clusterer):
@@ -286,7 +281,7 @@ class GPSCluster(Clusterer):
         coords = np.radians(repr_coords)
         
         # Use HDBSCAN defaults for variable density clustering
-        clusterer = hdbscan.HDBSCAN(
+        clusterer = HDBSCAN(
             min_cluster_size=self.min_samples, # default 2
             min_samples=1,                     # Reduced to 1 to minimize noise (singletons)
             metric='haversine',
