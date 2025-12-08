@@ -123,7 +123,7 @@ class JobService:
         storage = get_storage_client()
         response_urls = []
         
-        strategy = "proxy" if settings.STORAGE_TYPE == "local" else "direct"
+        strategy = "proxy" if settings.STORAGE_TYPE == "local" else "presigned"
 
         for file_req in files:
             target_path = f"{job.user_id}/{job.id}/photos/original/{file_req.filename}"

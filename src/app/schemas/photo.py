@@ -38,5 +38,5 @@ class PresignedUrlResponse(BaseModel):
     
 
 class BatchPresignedUrlResponse(BaseModel):
-    strategy: str  # "direct" or "proxy"
+    strategy: str  # "presigned" or "proxy"
     urls: List[PresignedUrlResponse]
