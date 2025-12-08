@@ -205,8 +205,7 @@ async def remove_previous_clusters(session: AsyncSession, job_id: str):
     await session.execute(
         update(Photo)
         .where(Photo.cluster_id.in_(select(cluster_ids_subq.c.id)))
-        .values(cluster_id=None,
-                deleted_at=datetime.now())
+        .values(cluster_id=None)
     )
 
     # 3) Cluster 삭제
