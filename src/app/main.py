@@ -1,18 +1,20 @@
 import logging
+import os  # Added os import
 import sys
-import os # Added os import
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import sentry_sdk
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.api import api_router
 from app.core.config import settings
 from app.core.logger import setup_logging
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+
+# from prometheus_fastapi_instrumentator import Instrumentator
+
 
 # Ensure project root is on PYTHONPATH
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -22,15 +24,6 @@ if str(PROJECT_ROOT) not in sys.path:
 
 setup_logging()
 logger = logging.getLogger(__name__)
-
-
-if settings.SENTRY_DSN:
-    sentry_sdk.init(
-        dsn=str(settings.SENTRY_DSN),
-        traces_sample_rate=1.0,
-        environment=settings.ENVIRONMENT,
-    )
-    logger.info("Sentry initialized.")
 
 
 @asynccontextmanager
@@ -67,6 +60,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Instrument Prometheus
+# Instrumentator().instrument(app).expose(app)
 
 app.include_router(api_router, prefix="/api")
 

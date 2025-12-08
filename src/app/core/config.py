@@ -37,9 +37,6 @@ class Settings(BaseSettings):
     SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     
-    # Monitoring
-    SENTRY_DSN: Optional[str] = None
-
     # Clustering defaults
     MIN_SAMPLES: int = 3
     MAX_LOCATION_DIST_M: float = 10.0
