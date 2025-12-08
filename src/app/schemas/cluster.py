@@ -21,6 +21,7 @@ class ClusterUpdateRequest(ClusterBase):
 
 class ClusterItemSync(BaseModel):
     id: str
+    name: str
     order_index: int
     photo_ids: List[str]
 

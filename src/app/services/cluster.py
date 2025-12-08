@@ -181,12 +181,16 @@ class ClusterService:
         
         for c_data in cluster_data:
             c_id = c_data.get('id')
+            c_name = c_data.get('name')
             c_order = c_data.get('order_index')
             c_photo_ids = c_data.get('photo_ids', [])
             
             # Update Cluster
             cluster = await self.db.get(Cluster, c_id)
             if cluster and cluster.job_id == job_id:
+                if cluster.name != c_name:
+                    cluster.name = c_name
+                    
                 if cluster.order_index != c_order:
                     cluster.order_index = c_order
                 

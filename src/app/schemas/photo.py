@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel
@@ -12,6 +13,7 @@ class PhotoResponse(BaseModel):
     job_id: str
     order_index: Optional[int] = 0
     cluster_id: Optional[str] = None
+    timestamp: Optional[datetime] = None
     storage_path: str
     original_filename: str
     url: Optional[str] = None

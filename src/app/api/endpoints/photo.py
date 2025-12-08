@@ -23,6 +23,7 @@ async def list_photos(
     return [PhotoResponse(id=photo.id, 
                           job_id=photo.job_id, 
                           order_index=photo.order_index,
+                          timestamp=photo.meta_timestamp,
                           cluster_id=photo.cluster_id, 
                           storage_path=photo.storage_path, 
                           original_filename=photo.original_filename,
