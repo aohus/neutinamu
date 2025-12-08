@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 class PhotoMove(BaseModel):
     target_cluster_id: str
+    order_index: Optional[int] = None
 
 
 class PhotoResponse(BaseModel):

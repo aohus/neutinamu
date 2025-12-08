@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 
+from app.models.cluster import Cluster
 from app.models.photo import Photo
 from app.schemas.photo import PhotoMove, PhotoResponse
 from app.services.cluster import ClusterService
@@ -35,41 +36,110 @@ class PhotoService:
         payload: PhotoMove,
         cluster_service: "ClusterService"
     ):
-        """Move a photo from one cluster to another."""
+        """Move a photo from one cluster to another with reordering."""
         target_cluster_id = payload.target_cluster_id
+        new_order_index = payload.order_index
 
         # Find photo first to get job_id
         result = await self.db.execute(select(Photo).where(Photo.id == photo_id))
         photo = result.scalars().first()
-        source_cluster_id = photo.cluster_id
-        logger.info(f"Moving photo {photo_id} from cluster {source_cluster_id} to {target_cluster_id}")
         if not photo:
             logger.error(f"Move failed: Photo with id {photo_id} not found.")
             raise HTTPException(status_code=404, detail="Photo not found")
+            
+        source_cluster_id = photo.cluster_id
+        logger.info(f"Moving photo {photo_id} from cluster {source_cluster_id} to {target_cluster_id} at index {new_order_index}")
 
-        if photo.cluster_id != source_cluster_id:
-            logger.error(f"Move failed: Photo {photo_id} does not belong to source cluster {source_cluster_id}.")
-            raise HTTPException(status_code=400, detail="Photo does not belong to the source cluster")
-        
+        # Handle 'reserve' creation if needed
+        if target_cluster_id == 'reserve':
+            # Check if reserve exists
+            result = await self.db.execute(select(Cluster).where(Cluster.job_id == photo.job_id, Cluster.name == 'reserve'))
+            cluster = result.scalars().first()
+            if not cluster:
+                cluster, _ = await cluster_service.create_cluster(job_id=photo.job_id, order_index=-1, name='reserve')
+            target_cluster_id = cluster.id
+
         try:
-            logger.debug(f"Moving photo file '{photo.original_filename}' from '{photo.cluster_id}' to '{target_cluster_id}'")
-            if target_cluster_id == 'reserve':
-                cluster = await cluster_service.create_cluster(job_id=photo.job_id, order_index=-1, name='reserve')
-                target_cluster_id = cluster.id
+            # Case 1: Intra-cluster move (Reordering within same cluster)
+            if source_cluster_id == target_cluster_id:
+                if new_order_index is not None:
+                    # Fetch all photos in this cluster
+                    result = await self.db.execute(
+                        select(Photo)
+                        .where(Photo.cluster_id == source_cluster_id, Photo.deleted_at.is_(None))
+                        .order_by(Photo.order_index.asc())
+                    )
+                    photos = result.scalars().all()
+                    
+                    # Remove from current position
+                    current_list = [p for p in photos if p.id != photo_id]
+                    
+                    # Insert at new position
+                    # Clamp index
+                    if new_order_index < 0: new_order_index = 0
+                    if new_order_index > len(current_list): new_order_index = len(current_list)
+                    
+                    current_list.insert(new_order_index, photo)
+                    
+                    # Update indices
+                    for idx, p in enumerate(current_list):
+                        p.order_index = idx
+            
+            # Case 2: Inter-cluster move
+            else:
+                # Check if target cluster exists
+                result = await self.db.execute(select(Cluster).where(Cluster.id == target_cluster_id))
+                if not result.scalars().first():
+                    logger.error(f"Move failed: Target cluster {target_cluster_id} not found.")
+                    raise HTTPException(status_code=404, detail="Target cluster not found")
+
+                # 1. Remove from source (implicitly done by changing cluster_id)
+                # Ideally, we should reorder source cluster to fill gaps, but it's optional for correctness 
+                # as long as order is relative. We can skip source reordering for performance.
+
+                # 2. Add to target
+                result = await self.db.execute(
+                    select(Photo)
+                    .where(Photo.cluster_id == target_cluster_id, Photo.deleted_at.is_(None))
+                    .order_by(Photo.order_index.asc())
+                )
+                target_photos = list(result.scalars().all())
                 
-            # Update DB
-            photo.cluster_id = target_cluster_id
+                # Insert
+                if new_order_index is None:
+                    new_order_index = len(target_photos)
+                
+                if new_order_index < 0: new_order_index = 0
+                if new_order_index > len(target_photos): new_order_index = len(target_photos)
+                
+                target_photos.insert(new_order_index, photo)
+                
+                # Update photo properties and target indices
+                photo.cluster_id = target_cluster_id
+                for idx, p in enumerate(target_photos):
+                    p.order_index = idx
+
             await self.db.commit()
             await self.db.flush()
             logger.info(f"Successfully moved photo {photo.id} to cluster {target_cluster_id}")
+            
+            # Check if source cluster became empty (only if it wasn't reserve and different from target)
+            if source_cluster_id != target_cluster_id:
+                 # Check source cluster type or name. If it's 'reserve', don't delete.
+                result = await self.db.execute(select(Cluster).where(Cluster.id == source_cluster_id))
+                src_cluster_obj = result.scalars().first()
+                
+                if src_cluster_obj and src_cluster_obj.name != 'reserve':
+                    result = await self.db.execute(
+                        select(Photo)
+                        .where(Photo.cluster_id == source_cluster_id, Photo.deleted_at.is_(None))
+                    )
+                    if not result.scalars().first():
+                         await cluster_service.delete_cluster(job_id=photo.job_id, cluster_id=source_cluster_id)
+
         except Exception as e:
             logger.error(f"Error moving photo {photo.id}: {e}", exc_info=True)
-            # TODO: Consider rolling back file move if DB update fails
             raise HTTPException(status_code=500, detail=str(e))
-
-        result = await self.db.execute(select(Photo).where(Photo.cluster_id == source_cluster_id))
-        if not result.scalars().first():
-            await cluster_service.delete_cluster(job_id=photo.job_id, cluster_id=source_cluster_id)
 
     # async def move_photo(
     #     self,
