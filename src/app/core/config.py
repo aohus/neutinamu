@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Snap To Report Service"
     CLUSTER_SERVICE_URL: str = "http://host.docker.internal:8001"
     CALLBACK_BASE_URL: str = "http://localhost:8000/api"
+    FRONTEND_ORIGIN: str = ""
 
     # Logging configuration
     ENVIRONMENT: str = "development"

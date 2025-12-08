@@ -164,7 +164,7 @@ class JobService:
                 session_url = storage.generate_resumable_session_url(
                     target_path=target_path,
                     content_type=file_req.content_type,
-                    origin=origin  # 클라이언트 Origin (CORS용)
+                    origin=settings.FRONTEND_ORIGIN  # 클라이언트 Origin (CORS용)
                 )
                 
                 response_urls.append(
@@ -180,7 +180,7 @@ class JobService:
             )
         except Exception as e:
             logger.warning(f"Failed resumable: {e}")
-            return await self.generate_presigned_urls(job_id, files, origin)
+            return await self.generate_presigned_urls(job_id, files)
 
     async def process_uploaded_files(
         self, job_id: str, file_info_list: list[dict]
