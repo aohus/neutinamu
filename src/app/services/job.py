@@ -164,7 +164,7 @@ class JobService:
                 session_url = storage.generate_resumable_session_url(
                     target_path=target_path,
                     content_type=file_req.content_type,
-                    origin=settings.FRONTEND_ORIGIN  # 클라이언트 Origin (CORS용)
+                    origin=f"{settings.FRONTEND_ORIGIN}:80"  # 클라이언트 Origin (CORS용)
                 )
                 
                 response_urls.append(
