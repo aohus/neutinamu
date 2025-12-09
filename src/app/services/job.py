@@ -272,7 +272,8 @@ class JobService:
                 storage_path=saved_path, 
                 thumbnail_path=thumbnail_path, 
                 url=storage.get_url(saved_path),
-                thumbnail_url=storage.get_url(thumbnail_path) if thumbnail_path else None
+                thumbnail_url=None
+                # thumbnail_url=storage.get_url(thumbnail_path) if thumbnail_path else None
             )
             logger.debug(f"Saved {file.filename} to {saved_path}, thumbnail: {thumbnail_path}")
             return photo
