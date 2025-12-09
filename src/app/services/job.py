@@ -215,7 +215,7 @@ class JobService:
                 job_id=job_id,
                 original_filename=info['filename'],
                 storage_path=storage_path,
-                thumbnail_path=thumbnail_path,
+                thumbnail_path=None,
                 url=storage.get_url(storage_path),
                 thumbnail_url=None
                 # thumbnail_url=storage.get_url(thumbnail_path) if thumbnail_path else None
@@ -270,7 +270,7 @@ class JobService:
                 job_id=job_id,
                 original_filename=file.filename,
                 storage_path=saved_path, 
-                thumbnail_path=thumbnail_path, 
+                thumbnail_path=None, 
                 url=storage.get_url(saved_path),
                 thumbnail_url=None
                 # thumbnail_url=storage.get_url(thumbnail_path) if thumbnail_path else None
