@@ -184,7 +184,7 @@ async def generate_upload_urls(
     db: AsyncSession = Depends(get_db),
 ):
     service = JobService(db)
-    return await service.generate_upload_urls(job_id=job_id, files=files)
+    return await service.generate_presigned_urls(job_id=job_id, files=files)
 
 
 @router.post(
