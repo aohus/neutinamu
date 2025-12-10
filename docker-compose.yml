@@ -21,7 +21,7 @@ services:
       - report-network
 
   # Backend API
-  backend:
+  api:
     build:
       context: .
       dockerfile: ./docker/Dockerfile
@@ -35,7 +35,9 @@ services:
       ALGORITHM: ${ALGORITHM}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
       FRONTEND_URL: ${FRONTEND_URL}
-      STORAGE_TYPE: local
+      STORAGE_TYPE: ${STORAGE_TYPE:-local}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
+      GOOGLE_APPLICATION_CREDENTIALS: /cred_gcs.json
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -45,6 +47,7 @@ services:
       - ./src:/app
       - ./assets:/app/assets
       - backend_logs:/app/logs
+      - ./config/gcp/.cred_gcs.json:/cred_gcs.json:ro
     networks:
       - report-network
     command: >+

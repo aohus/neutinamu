@@ -1,0 +1,9 @@
+[
+    {
+      "origin": ["http://34.64.185.229", "https://34.64.185.229", "http://0.0.0.0:3000"],
+      "method": ["PUT", "POST", "OPTIONS"],
+      "responseHeader": ["Content-Type", "Content-Range", "x-goog-resumable", "Vary", "Range", "Access-Control-Allow-Origin"],
+      "requestHeader": ["Content-Type", "Content-Range"],
+      "maxAgeSeconds": 0
+    }
+]
