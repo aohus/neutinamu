@@ -26,7 +26,15 @@ from app.schemas.photo import (
     PhotoUploadRequest,
 )
 from app.services.job import JobService
-from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Header,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, with_loader_criteria
@@ -181,10 +189,11 @@ async def upload_photos(
 async def generate_upload_urls(
     job_id: str,
     files: List[PhotoUploadRequest],
+    origin: str | None = Header(None), 
     db: AsyncSession = Depends(get_db),
 ):
     service = JobService(db)
-    return await service.generate_upload_urls(job_id=job_id, files=files)
+    return await service.generate_upload_urls(job_id=job_id, files=files, origin=origin)
 
 
 @router.post(

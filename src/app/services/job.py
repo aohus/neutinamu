@@ -165,7 +165,7 @@ class JobService:
                 session_url = storage.generate_resumable_session_url(
                     target_path=target_path,
                     content_type=file_req.content_type,
-                    origin="http://34.64.185.229"  # 클라이언트 Origin (CORS용)
+                    origin=origin  # Use the passed origin
                 )
                 logger.info(f"request session_url from: '{origin}', generated session_url: '{session_url}'")
                 
