@@ -29,7 +29,15 @@ class MetadataExtractor:
         except Exception as e:
             logger.error(f"Failed to run exif extraction for {image_path}: {e}")
             exif = None
+        
+        return self._build_photometa(image_path, exif)
 
+    def extract_from_bytes(self, content: bytes, file_name: str) -> PhotoMeta:
+        """Extracts metadata directly from image bytes."""
+        exif = self._export_exif_sync(content)
+        return self._build_photometa(file_name, exif)
+
+    def _build_photometa(self, path: str, exif: Optional[dict]) -> PhotoMeta:
         lat, lon, alt, direction = self._get_gps_from_exif(exif)
         timestamp = self._parse_datetime_from_exif(exif)
 
@@ -59,8 +67,8 @@ class MetadataExtractor:
             flash = exif_exif.get(piexif.ExifIFD.Flash)
 
         return PhotoMeta(
-            path=image_path,
-            original_name=image_path.split("/")[-1],
+            path=path,
+            original_name=path.split("/")[-1],
             lat=lat,
             lon=lon,
             alt=alt,

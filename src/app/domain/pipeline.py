@@ -71,16 +71,48 @@ class PhotoClusteringPipeline:
         logger.info(f"Pipeline run started for job {self.config.job_id}.")
         
         logger.info("Resolving photo paths and extracting metadata...")
+        
+        extracted_metas = [None] * len(self.photos)
         tasks = []
-        for p in self.photos:
-            if isinstance(self.storage, LocalStorageService):
-                full_path = str(self.storage.media_root / p.storage_path)
+        indices_to_extract = []
+
+        for i, p in enumerate(self.photos):
+            # Optimization: Use stored metadata if available
+            if p.meta_lat is not None and p.meta_lon is not None:
+                extracted_metas[i] = PhotoMeta(
+                    path=p.storage_path,
+                    original_name=p.original_filename,
+                    lat=p.meta_lat,
+                    lon=p.meta_lon,
+                    alt=None, # Altitude not stored in DB yet
+                    timestamp=p.meta_timestamp.timestamp() if p.meta_timestamp else None,
+                    focal_35mm=None,
+                    orientation=None,
+                    digital_zoom=None,
+                    scene_capture_type=None,
+                    white_balance=None,
+                    exposure_mode=None,
+                    flash=None,
+                    gps_img_direction=None
+                )
             else:
-                full_path = self.storage.get_url(p.storage_path)
-            tasks.append(self.metadata_extractor.extract(full_path))
+                indices_to_extract.append(i)
+                if isinstance(self.storage, LocalStorageService):
+                    full_path = str(self.storage.media_root / p.storage_path)
+                else:
+                    full_path = self.storage.get_url(p.storage_path)
+                tasks.append(self.metadata_extractor.extract(full_path))
             
-        photos = await asyncio.gather(*tasks)
-        logger.info(f"Metadata extracted for {len(photos)} photos.")
+        if tasks:
+            logger.info(f"Extracting metadata for {len(tasks)} photos (others used cache)...")
+            results = await asyncio.gather(*tasks)
+            for idx, meta in zip(indices_to_extract, results):
+                extracted_metas[idx] = meta
+        else:
+             logger.info("Using cached metadata for all photos.")
+
+        photos = [m for m in extracted_metas if m is not None]
+        logger.info(f"Metadata ready for {len(photos)} photos.")
 
         logger.info("Starting clustering pipeline...")
         final_scenes = await self.clusterer.process(photos)

@@ -11,6 +11,7 @@ from app.db.database import AsyncSessionLocal
 from app.domain.cluster_background import run_pipeline_task
 from app.domain.cluster_client import run_deep_cluster_for_job
 from app.domain.generate_pdf import generate_pdf_for_session
+from app.domain.metadata_extractor import MetadataExtractor
 from app.domain.storage.factory import (
     get_storage_client,  # Import storage client factory
 )
@@ -166,6 +167,7 @@ class JobService:
                     content_type=file_req.content_type,
                     origin="http://34.64.185.229"  # 클라이언트 Origin (CORS용)
                 )
+                logger.info(f"request session_url from: '{origin}', generated session_url: '{session_url}'")
                 
                 response_urls.append(
                     PresignedUrlResponse(
@@ -222,6 +224,22 @@ class JobService:
             )
             photos.append(photo)
         
+        # Extract metadata concurrently
+        extractor = MetadataExtractor()
+        async def extract_and_update(p: Photo):
+            try:
+                # Use URL for extraction
+                meta = await extractor.extract(p.url)
+                if meta:
+                    p.meta_lat = meta.lat
+                    p.meta_lon = meta.lon
+                    p.meta_timestamp = datetime.fromtimestamp(meta.timestamp) if meta.timestamp else None
+            except Exception as e:
+                logger.warning(f"Failed to extract metadata for {p.original_filename}: {e}")
+
+        if photos:
+            await asyncio.gather(*[extract_and_update(p) for p in photos])
+
         self.db.add_all(photos)
         await self.db.commit()
         
@@ -266,14 +284,21 @@ class JobService:
                 thumb_target_path = f"{job.user_id}/{job.id}/photos/thumbnail/{thumb_filename}"
                 thumbnail_path = await storage.save_file(AsyncBytesIO(thumb_content), thumb_target_path, "image/jpeg")
 
+            # Extract Metadata
+            extractor = MetadataExtractor()
+            meta = extractor.extract_from_bytes(content, file.filename)
+
             photo = Photo(
                 job_id=job_id,
                 original_filename=file.filename,
                 storage_path=saved_path, 
                 thumbnail_path=None, 
                 url=storage.get_url(saved_path),
-                thumbnail_url=None
+                thumbnail_url=None,
                 # thumbnail_url=storage.get_url(thumbnail_path) if thumbnail_path else None
+                meta_lat=meta.lat,
+                meta_lon=meta.lon,
+                meta_timestamp=datetime.fromtimestamp(meta.timestamp) if meta.timestamp else None
             )
             logger.debug(f"Saved {file.filename} to {saved_path}, thumbnail: {thumbnail_path}")
             return photo
