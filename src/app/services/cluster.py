@@ -35,11 +35,22 @@ class ClusterService:
     async def create_cluster(self, job_id: str, order_index: int, name: str = None, photo_ids: list[str] = None):
         """Create a new cluster."""
         logger.info(f"Creating cluster for job_id: {job_id} with name: {name}")
+        result = await self.db.execute(select(Job).where(Job.id == job_id))
+        job = result.scalars().first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        if job.construction_type:
+            name = job.construction_type
+        else:
+            name = job.title
+
         result = await self.db.execute(
             select(Cluster)
             .where(Cluster.job_id == job_id)
             .order_by(Cluster.order_index.asc())
         )
+
         clusters = result.scalars().all()
         if not clusters:
             logger.error(f"Failed to create cluster: Job not found for id {job_id}")
