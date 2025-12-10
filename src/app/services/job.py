@@ -12,9 +12,7 @@ from app.domain.cluster_background import run_pipeline_task
 from app.domain.cluster_client import run_deep_cluster_for_job
 from app.domain.generate_pdf import generate_pdf_for_session
 from app.domain.metadata_extractor import MetadataExtractor
-from app.domain.storage.factory import (
-    get_storage_client,  # Import storage client factory
-)
+from app.domain.storage.factory import get_storage_client
 from app.models.cluster import Cluster
 from app.models.job import ExportJob, ExportStatus, Job, JobStatus
 from app.models.photo import Photo
@@ -337,7 +335,8 @@ class JobService:
         logger.info(f"Job {job_id} status updated to PENDING.")
 
         # Trigger pipeline in background
-        background_tasks.add_task(run_pipeline_task, job_id, min_samples, max_dist_m, max_alt_diff_m)
+        storage = get_storage_client() # Use the factory to get the correct storage service
+        background_tasks.add_task(run_pipeline_task, job_id, storage, min_samples, max_dist_m, max_alt_diff_m)
         logger.info(f"Clustering task for job {job_id} added to background tasks.")
         
         data = {"message": "Local clustering started"}
