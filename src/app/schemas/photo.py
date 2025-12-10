@@ -9,6 +9,10 @@ class PhotoMove(BaseModel):
     order_index: Optional[int] = None
 
 
+class PhotoUpdate(BaseModel):
+    labels: Optional[dict] = None
+
+
 class PhotoResponse(BaseModel):
     id: str
     job_id: str
@@ -19,6 +23,7 @@ class PhotoResponse(BaseModel):
     original_filename: str
     url: Optional[str] = None
     thumbnail_path: Optional[str] = None
+    labels: Optional[dict] = {}
 
 
 class PhotoUploadRequest(BaseModel):

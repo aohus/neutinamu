@@ -2,7 +2,7 @@ from datetime import datetime
 
 from app.db.database import Base
 from app.models.utils import generate_short_id
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -23,6 +23,8 @@ class Photo(Base):
     thumbnail_url = Column(String, nullable=True)
 
     order_index = Column(Integer, nullable=True)
+
+    labels = Column(JSON, default={})
     
     # Metadata
     meta_lat = Column(Float, nullable=True)

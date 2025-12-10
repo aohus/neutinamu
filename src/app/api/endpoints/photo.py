@@ -2,7 +2,7 @@ import logging
 
 from app.db.database import get_db
 from app.domain.storage.factory import get_storage_client  # Import this
-from app.schemas.photo import PhotoMove, PhotoResponse
+from app.schemas.photo import PhotoMove, PhotoResponse, PhotoUpdate
 from app.services.cluster import ClusterService
 from app.services.photo import PhotoService
 from fastapi import APIRouter, Depends, status
@@ -28,8 +28,31 @@ async def list_photos(
                           storage_path=photo.storage_path, 
                           original_filename=photo.original_filename,
                           url=storage.get_url(photo.storage_path), # Populate URL
-                          thumbnail_path=storage.get_url(photo.thumbnail_path) if photo.thumbnail_path else None
+                          thumbnail_path=storage.get_url(photo.thumbnail_path) if photo.thumbnail_path else None,
+                          labels=photo.labels or {}
                           ) for photo in photos]
+
+@router.patch("/photos/{photo_id}", response_model=PhotoResponse)
+async def update_photo(
+    photo_id: str,
+    payload: PhotoUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    service = PhotoService(db)
+    photo = await service.update_photo(photo_id=photo_id, payload=payload)
+    storage = get_storage_client()
+    return PhotoResponse(
+        id=photo.id, 
+        job_id=photo.job_id, 
+        order_index=photo.order_index,
+        timestamp=photo.meta_timestamp,
+        cluster_id=photo.cluster_id, 
+        storage_path=photo.storage_path, 
+        original_filename=photo.original_filename,
+        url=storage.get_url(photo.storage_path),
+        thumbnail_path=storage.get_url(photo.thumbnail_path) if photo.thumbnail_path else None,
+        labels=photo.labels or {}
+    )
 
 @router.post("/photos/{photo_id}/move", status_code=status.HTTP_204_NO_CONTENT)
 async def move_photo(

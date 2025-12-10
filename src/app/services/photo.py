@@ -3,7 +3,7 @@ from datetime import datetime
 
 from app.models.cluster import Cluster
 from app.models.photo import Photo
-from app.schemas.photo import PhotoMove, PhotoResponse
+from app.schemas.photo import PhotoMove, PhotoResponse, PhotoUpdate
 from app.services.cluster import ClusterService
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +29,32 @@ class PhotoService:
         photos = result.scalars().all()
         logger.info(f"Found {len(photos)} photos for job_id: {job_id}")
         return photos
+
+    async def update_photo(
+        self,
+        photo_id: str,
+        payload: PhotoUpdate,
+    ):
+        """Update photo metadata (e.g. labels)."""
+        result = await self.db.execute(select(Photo).where(Photo.id == photo_id))
+        photo = result.scalars().first()
+        
+        if not photo:
+            logger.error(f"Update failed: Photo {photo_id} not found.")
+            raise HTTPException(status_code=404, detail="Photo not found")
+        
+        try:
+            if payload.labels is not None:
+                photo.labels = payload.labels
+
+            await self.db.commit()
+            await self.db.refresh(photo)
+            logger.info(f"Successfully updated photo {photo_id}")
+            return photo
+            
+        except Exception as e:
+            logger.error(f"Error updating photo {photo_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
 
     async def move_photo(
         self,
