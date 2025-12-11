@@ -2,12 +2,14 @@ import asyncio
 import io
 import logging
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import piexif
 from fastapi import BackgroundTasks, File, HTTPException, UploadFile
-from PIL import Image
+from PIL import Image, ImageFile
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -31,6 +33,8 @@ from app.schemas.photo import (
 )
 
 logger = logging.getLogger(__name__)
+# 부분 다운로드된 파일(Truncated Image) 처리 허용
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class AsyncBytesIO(io.BytesIO):
@@ -38,18 +42,34 @@ class AsyncBytesIO(io.BytesIO):
         return super().read(*args, **kwargs)
 
 
-def generate_thumbnail(image_data: bytes) -> bytes:
+def generate_thumbnail(image_data: bytes) -> bytes | None:
+    """
+    image_data: 파일의 전체 또는 일부(Partial) 바이트 데이터
+    반환값: 썸네일 JPEG 바이트 또는 None
+    """
     try:
-        with Image.open(io.BytesIO(image_data)) as img:
-            # Handle orientation if needed, but basic thumbnail is fine
-            img.thumbnail((600, 400))
-            if img.mode != "RGB":
-                img = img.convert("RGB")
-            output = io.BytesIO()
-            img.save(output, format="JPEG", quality=85)
-            return output.getvalue()
+        exif_dict = piexif.load(image_data)
+        if exif_dict and exif_dict.get("thumbnail"):
+            logger.info("Extracted embedded thumbnail via piexif.")
+            return exif_dict["thumbnail"]
+    except Exception:
+        logger.info("Extracted embedded thumbnail via piexif.")
+        pass
+
+    try:
+        with io.BytesIO(image_data) as f:
+            with Image.open(f) as img:
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+                img.thumbnail((800, 400))
+
+                output = io.BytesIO()
+                img.save(output, format="JPEG", quality=85)
+                return output.getvalue()
+    except OSError:
+        return None
     except Exception as e:
-        logger.warning(f"Failed to generate thumbnail: {e}")
+        logger.warning(f"Failed to generate thumbnail via Pillow: {e}")
         return None
 
 
@@ -179,8 +199,9 @@ class JobService:
     async def process_uploaded_files(self, job_id: str, file_info_list: list[dict]) -> list[Photo]:
         """
         Register files that have been uploaded directly to storage.
-        file_info_list: list of dicts with 'filename' and 'storage_path'
+        Optimized for 4GB RAM environment using Semaphores and Temporary Files.
         """
+        # 1. Job Validation
         result = await self.db.execute(select(Job).where(Job.id == job_id))
         job = result.scalars().first()
         if not job:
@@ -188,53 +209,125 @@ class JobService:
 
         storage = get_storage_client()
         photos = []
-        for info in file_info_list:
-            storage_path = info["storage_path"]  # This is the original image path
 
-            original_filename = os.path.basename(storage_path)
-            original_filename_parts = os.path.splitext(original_filename)
-            thumb_filename = f"{original_filename_parts[0]}_thumb.jpg"
-
-            base_dir = Path(storage_path).parent.parent  # photos/
-            derived_thumbnail_path = str(base_dir / "thumbnail" / thumb_filename)
-
-            thumbnail_path = info.get("thumbnail_path", derived_thumbnail_path)
-
-            if thumbnail_path == storage_path:
-                thumbnail_path = derived_thumbnail_path
-
-            photo = Photo(
-                job_id=job_id,
-                original_filename=info["filename"],
-                storage_path=storage_path,
-                thumbnail_path=None,
-                url=storage.get_url(storage_path),
-                thumbnail_url=None,
-                # thumbnail_url=storage.get_url(thumbnail_path) if thumbnail_path else None
-            )
-            photos.append(photo)
-
-        # Extract metadata concurrently
+        # 동시 실행 제한 (메모리 보호를 위해 동시에 10개까지만 무거운 작업 수행)
+        semaphore = asyncio.Semaphore(10)
         extractor = MetadataExtractor()
 
-        async def extract_and_update(p: Photo):
-            try:
-                # Use URL for extraction
-                meta = await extractor.extract(p.url)
-                if meta:
-                    p.meta_lat = meta.lat
-                    p.meta_lon = meta.lon
-                    p.meta_timestamp = datetime.fromtimestamp(meta.timestamp) if meta.timestamp else None
-            except Exception as e:
-                logger.warning(f"Failed to extract metadata for {p.original_filename}: {e}")
+        async def process_single_file(info: dict) -> Photo:
+            async with semaphore:  # 여기서 동시 실행 수 제한
+                storage_path = info["storage_path"]
+                original_filename = os.path.basename(storage_path)
+                original_filename_parts = os.path.splitext(original_filename)
+                thumb_filename = f"{original_filename_parts[0]}_thumb.jpg"
 
+                base_dir = Path(storage_path).parent.parent
+                derived_thumbnail_path = str(base_dir / "thumbnail" / thumb_filename)
+
+                # 사용자가 지정한 썸네일 경로가 있으면 사용, 없으면 유도된 경로 사용
+                thumbnail_path = info.get("thumbnail_path", derived_thumbnail_path)
+                if thumbnail_path == storage_path:
+                    thumbnail_path = derived_thumbnail_path
+
+                thumb_content = None
+                meta_data = None
+
+                # 임시 디렉토리 생성 (작업 후 자동 삭제됨)
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    temp_file_path = Path(temp_dir) / original_filename
+
+                    # --- [Step 1] 썸네일 생성 시도 (Partial Download) ---
+                    # 네트워크 비용 절감을 위해 앞부분만 먼저 시도
+                    if hasattr(storage, "download_partial_bytes"):
+                        try:
+                            # 100KB만 다운로드하여 embedded thumbnail 확인
+                            partial_data = await asyncio.to_thread(
+                                storage.download_partial_bytes, storage_path, 100 * 1024
+                            )
+                            if partial_data:
+                                thumb_content = generate_thumbnail(partial_data)
+                                if thumb_content:
+                                    logger.info(f"Generated thumbnail from partial bytes for {original_filename}")
+                        except Exception as e:
+                            logger.debug(f"Partial thumbnail generation failed for {original_filename}: {e}")
+
+                    # --- [Step 2] 전체 다운로드 (필요한 경우) ---
+                    # 썸네일 생성에 실패했거나, 메타데이터 추출을 위해 원본이 필요한 경우
+                    # 1MB 파일이므로 Disk에 쓰는 것이 메모리 관리에 유리함
+
+                    full_file_downloaded = False
+
+                    # 썸네일이 없거나 메타데이터 추출을 위해 파일 다운로드가 필요한 경우
+                    if not thumb_content:
+                        try:
+                            # 전체 파일을 임시 경로로 다운로드
+                            await storage.download_file(storage_path, temp_file_path)
+                            full_file_downloaded = True
+
+                            # Full byte로 썸네일 재시도
+                            if temp_file_path.exists():
+                                full_data = await asyncio.to_thread(temp_file_path.read_bytes)
+                                thumb_content = generate_thumbnail(full_data)
+                                if thumb_content:
+                                    logger.info(f"Generated thumbnail from full file for {original_filename}")
+                        except Exception as e:
+                            logger.warning(f"Full download/thumbnail generation failed for {original_filename}: {e}")
+
+                    # --- [Step 3] 썸네일 저장 ---
+                    if thumb_content:
+                        try:
+                            await storage.save_file(AsyncBytesIO(thumb_content), derived_thumbnail_path, "image/jpeg")
+                            thumbnail_path = derived_thumbnail_path
+                        except Exception as e:
+                            logger.warning(f"Failed to save thumbnail for {original_filename}: {e}")
+                            thumbnail_path = None
+                    else:
+                        thumbnail_path = None
+
+                    # --- [Step 4] 메타데이터 추출 (로컬 파일 기반) ---
+                    # GCS URL(p.url) 대신 다운로드한 로컬 파일을 사용
+                    try:
+                        # 아직 다운로드 안 했다면(썸네일은 partial로 성공했지만 메타데이터가 필요한 경우) 다운로드
+                        if not full_file_downloaded:
+                            await storage.download_file(storage_path, temp_file_path)
+
+                        if temp_file_path.exists():
+                            # extractor가 파일 경로를 지원한다고 가정 (대부분 지원함)
+                            # 만약 bytes만 지원한다면: await extractor.extract(temp_file_path.read_bytes())
+                            meta = await extractor.extract(str(temp_file_path))
+                            if meta:
+                                meta_data = meta
+                    except Exception as e:
+                        logger.warning(f"Failed to extract metadata for {original_filename}: {e}")
+
+                # --- [Step 5] 객체 생성 ---
+                photo = Photo(
+                    job_id=job_id,
+                    original_filename=info["filename"],
+                    storage_path=storage_path,
+                    thumbnail_path=thumbnail_path,
+                    url=storage.get_url(storage_path),
+                    thumbnail_url=storage.get_url(thumbnail_path) if thumbnail_path else None,
+                )
+
+                # 추출된 메타데이터 적용
+                if meta_data:
+                    photo.meta_lat = meta_data.lat
+                    photo.meta_lon = meta_data.lon
+                    photo.meta_timestamp = datetime.fromtimestamp(meta_data.timestamp) if meta_data.timestamp else None
+
+                return photo
+
+        # 모든 파일에 대해 비동기 작업 스케줄링 및 실행
+        if file_info_list:
+            photos = await asyncio.gather(*[process_single_file(info) for info in file_info_list])
+            # None이 반환될 경우(에러 등)를 대비해 필터링 (필요 시)
+            photos = [p for p in photos if p is not None]
+
+        # DB 저장
         if photos:
-            await asyncio.gather(*[extract_and_update(p) for p in photos])
-
-        self.db.add_all(photos)
-        await self.db.commit()
-
-        # Trigger metadata extraction async task here if needed
+            self.db.add_all(photos)
+            await self.db.commit()
 
         logger.info(f"Registered {len(photos)} uploaded photos for job {job_id}")
         return photos
@@ -347,27 +440,6 @@ class JobService:
         job = result.scalar_one_or_none()
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
-
-        # If retrying, clear previous results
-        # if job.status in [JobStatus.COMPLETED, JobStatus.FAILED]:
-        #     logger.info(f"Clearing previous clusters for job {job_id}")
-        #     cluster_ids_subq = (
-        #         select(Cluster.id)
-        #         .where(Cluster.job_id == job_id)
-        #         .subquery()
-        #     )
-
-        #     # Unassign photos
-        #     await self.db.execute(
-        #         update(Photo)
-        #         .where(Photo.cluster_id.in_(select(cluster_ids_subq.c.id)))
-        #         .values(cluster_id=None)
-        #     )
-
-        #     # Delete clusters
-        #     await self.db.execute(
-        #         delete(Cluster).where(Cluster.id.in_(select(cluster_ids_subq.c.id)))
-        #     )
 
         # 상태를 PENDING -> RUNNING(soon) 으로 바꾸기 전에 표시만
         job.status = JobStatus.PENDING

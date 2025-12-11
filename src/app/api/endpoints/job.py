@@ -198,20 +198,25 @@ async def generate_upload_urls(
 
 @router.post(
     "/jobs/{job_id}/photos/complete",
-    summary="Notify upload completion for direct uploads",
-    response_model=PhotoUploadResponse,
+    summary="Notify upload completion for direct uploads (Async)",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=JobStatusResponse, 
 )
 async def complete_upload(
     job_id: str,
-    # files: List[PhotoUploadRequest], # Reusing this to pass filename/content_type, but we might need storage_path.
     uploaded_files: List[dict],  # {filename: str, storage_path: str}
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    # Note: uploaded_files should ideally be a Pydantic model list. 
-    # Using dict for flexibility now, but should be typed.
     service = JobService(db)
-    photos = await service.process_uploaded_files(job_id=job_id, file_info_list=uploaded_files)
-    return PhotoUploadResponse(job_id=job_id, file_count=len(photos))
+    # Offload processing to background
+    background_tasks.add_task(service.process_uploaded_files, job_id=job_id, file_info_list=uploaded_files)
+    
+    return JobStatusResponse(
+        job_id=job_id,
+        status=JobStatus.PROCESSING, 
+        message=f"Processing {len(uploaded_files)} uploaded files in background."
+    )
 
 
 @router.post(
