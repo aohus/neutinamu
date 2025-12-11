@@ -1,8 +1,9 @@
 from datetime import datetime
 from typing import List, Optional
 
-from app.schemas.enum import ExportStatus, JobStatus
 from pydantic import BaseModel
+
+from app.schemas.enum import ExportStatus, JobStatus
 
 
 class JobRequest(BaseModel):
@@ -18,9 +19,9 @@ class JobClusterRequest(BaseModel):
 
 
 class JobExportRequest(BaseModel):
-    title: Optional[str] = None
-    construction_type: Optional[str] = None
-    company_name: Optional[str] = None
+    cover_title: Optional[str] = None
+    cover_company_name: Optional[str] = None
+    labels: Optional[list] = []
 
 
 class JobResponse(BaseModel):
@@ -45,7 +46,7 @@ class PhotoResponse(BaseModel):
     thumbnail_path: Optional[str] = None
     cluster_id: Optional[str] = None
     order_index: Optional[int] = None
-    
+
     class Config:
         from_attributes = True
 

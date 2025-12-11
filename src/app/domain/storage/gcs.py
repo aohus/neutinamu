@@ -108,11 +108,32 @@ class GCSStorageService(StorageService):
         return upload_url
     
     async def download_file(self, path: str, destination_local_path: Path):
-        item = path.replace(f"https://storage.googleapis.com/{self.bucket_name}/", "")
-        blob = self.bucket.blob(item)
+        blob_name = path.replace(f"https://storage.googleapis.com/{self.bucket_name}/", "")
+        blob = self.bucket.blob(blob_name)
         
         def download_sync():
             blob.download_to_filename(str(destination_local_path))
             logger.info(f"[GCS] Downloaded {path} to {destination_local_path}")
 
         await asyncio.to_thread(download_sync)
+
+    def download_partial_bytes(self, path: str, end_byte: int = 50 * 1024) -> Optional[bytes]:
+        """
+        [최적화 핵심] 파일의 앞부분(0 ~ end_byte)만 메모리로 다운로드합니다.
+        이미지 썸네일/헤더 추출용으로 사용됩니다.
+        """
+        blob_name = path.replace(f"https://storage.googleapis.com/{self.bucket_name}/", "")
+        
+        try:
+            # 멀티프로세싱 환경에서는 이 메서드 내부에서 Client가 init 되는 것이 안전함
+            # (self.client 프로퍼티가 호출 시점에 생성하므로 OK)
+            # bucket_name, blob_name = self.parse_gcs_path(path)
+            
+            # 직접 bucket 객체 생성 (self.bucket 사용 시 의존성 문제 회피)
+            blob = self.bucket.blob(blob_name)
+
+            # range request (start=0, end=end_byte)
+            return blob.download_as_bytes(start=0, end=end_byte)
+        except Exception as e:
+            logger.warning(f"[GCS] Partial download failed for {path}: {e}")
+            return None
