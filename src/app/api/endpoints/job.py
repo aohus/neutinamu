@@ -1,6 +1,19 @@
 import logging
 from typing import List
 
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Header,
+    UploadFile,
+    status,
+)
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload, with_loader_criteria
+
 from app.api.endpoints.auth import get_current_user
 from app.db.database import get_db
 from app.domain.storage.factory import get_storage_client
@@ -26,36 +39,22 @@ from app.schemas.photo import (
     PhotoUploadRequest,
 )
 from app.services.job import JobService
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Depends,
-    File,
-    Header,
-    UploadFile,
-    status,
-)
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, with_loader_criteria
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.get("/jobs", response_model=list[JobResponse], status_code=status.HTTP_200_OK)
-async def get_jobs(
-    current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
-):
+async def get_jobs(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     service = JobService(db)
     jobs = await service.get_jobs(current_user)
     return [
         JobResponse(
-            id=job.id, 
-            title=job.title, 
-            status=job.status, 
-            export_status=job.export_job.status if job.export_job else ExportStatus.PENDING, 
-            created_at=job.created_at
+            id=job.id,
+            title=job.title,
+            status=job.status,
+            export_status=job.export_job.status if job.export_job else ExportStatus.PENDING,
+            created_at=job.created_at,
         )
         for job in jobs
     ]
@@ -73,17 +72,17 @@ async def create_job(
         user=current_user,
         title=payload.title,
         construction_type=payload.construction_type,
-        company_name=payload.company_name
+        company_name=payload.company_name,
     )
-    
+
     return JobResponse(
-        id=job.id, 
-        title=job.title, 
-        status=job.status, 
-        export_status=ExportStatus.PENDING, 
+        id=job.id,
+        title=job.title,
+        status=job.status,
+        export_status=ExportStatus.PENDING,
         created_at=job.created_at,
         construction_type=job.construction_type,
-        company_name=job.company_name
+        company_name=job.company_name,
     )
 
 
@@ -109,18 +108,16 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
     service = JobService(db)
     job = await service.get_job(job_id=job_id)
     return JobResponse(
-            id=job.id, 
-            title=job.title, 
-            status=job.status, 
-            export_status=job.export_job.status if job.export_job else ExportStatus.PENDING, 
-            created_at=job.created_at)
+        id=job.id,
+        title=job.title,
+        status=job.status,
+        export_status=job.export_job.status if job.export_job else ExportStatus.PENDING,
+        created_at=job.created_at,
+    )
 
 
 @router.get("/jobs/{job_id}/details", response_model=JobDetailsResponse)
-async def get_job_details(
-    job_id: str, 
-    db: AsyncSession = Depends(get_db)
-):
+async def get_job_details(job_id: str, db: AsyncSession = Depends(get_db)):
     """Get full job details including photos and clusters."""
     # Efficiently fetch everything in one query or minimal queries
     query = (
@@ -130,34 +127,35 @@ async def get_job_details(
             selectinload(Job.photos),
             selectinload(Job.clusters).selectinload(Cluster.photos),
             selectinload(Job.export_job),
-            with_loader_criteria(Photo, Photo.deleted_at.is_(None)) 
+            with_loader_criteria(Photo, Photo.deleted_at.is_(None)),
         )
     )
     result = await db.execute(query)
     job = result.scalar_one_or_none()
-    
+
     if not job:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="Job not found")
 
     # Map thumbnail_url to thumbnail_path for response compatibility if needed
     # Since Pydantic model has thumbnail_path, we need to ensure the objects have it as URL
     # OR we rely on the object attribute if the Pydantic model is configured with from_attributes=True and aliases.
-    
+
     # Actually, JobDetailsResponse likely nests PhotoResponse or similar.
     # Let's check JobDetailsResponse.
     # If it uses PhotoResponse, and PhotoResponse fields are populated from ORM attributes...
     # The Photo model has thumbnail_path (relative) and thumbnail_url (absolute).
     # The PhotoResponse schema has thumbnail_path (which we used as URL).
-    
+
     # To avoid confusion, I will manually assign url and thumbnail_path on the objects just like before,
     # but using the DB values instead of storage.get_url()
-    
+
     for photo in job.photos:
         # photo.url is already correct from DB
         if photo.thumbnail_url:
-             photo.thumbnail_path = photo.thumbnail_url # Override relative path with URL for response
-    
+            photo.thumbnail_path = photo.thumbnail_url  # Override relative path with URL for response
+
     for cluster in job.clusters:
         for photo in cluster.photos:
             if photo.thumbnail_url:
@@ -189,7 +187,7 @@ async def upload_photos(
 async def generate_upload_urls(
     job_id: str,
     files: List[PhotoUploadRequest],
-    origin: str | None = Header(None), 
+    origin: str | None = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
     service = JobService(db)
@@ -200,7 +198,7 @@ async def generate_upload_urls(
     "/jobs/{job_id}/photos/complete",
     summary="Notify upload completion for direct uploads (Async)",
     status_code=status.HTTP_202_ACCEPTED,
-    response_model=JobStatusResponse, 
+    response_model=JobStatusResponse,
 )
 async def complete_upload(
     job_id: str,
@@ -211,11 +209,11 @@ async def complete_upload(
     service = JobService(db)
     # Offload processing to background
     background_tasks.add_task(service.process_uploaded_files, job_id=job_id, file_info_list=uploaded_files)
-    
+
     return JobStatusResponse(
         job_id=job_id,
-        status=JobStatus.PROCESSING, 
-        message=f"Processing {len(uploaded_files)} uploaded files in background."
+        status=JobStatus.PROCESSING,
+        message=f"Processing {len(uploaded_files)} uploaded files in background.",
     )
 
 
@@ -226,17 +224,16 @@ async def complete_upload(
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def start_cluster(
-    job_id: str, 
-    payload: JobClusterRequest, 
-    background_tasks: BackgroundTasks, 
-    db: AsyncSession = Depends(get_db)
+    job_id: str, payload: JobClusterRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)
 ):
     service = JobService(db)
-    job, data = await service.start_cluster(job_id=job_id, 
-                                background_tasks=background_tasks,
-                                min_samples=payload.min_samples, 
-                                max_dist_m=payload.max_dist_m, 
-                                max_alt_diff_m=payload.max_alt_diff_m)
+    job, data = await service.start_cluster(
+        job_id=job_id,
+        background_tasks=background_tasks,
+        min_samples=payload.min_samples,
+        max_dist_m=payload.max_dist_m,
+        max_alt_diff_m=payload.max_alt_diff_m,
+    )
     return JobStatusResponse(
         job_id=job_id,
         status=job.status,
@@ -246,29 +243,21 @@ async def start_cluster(
 
 @router.post("/jobs/{job_id}/export", response_model=ExportStatusResponse, status_code=status.HTTP_202_ACCEPTED)
 async def start_export(
-    job_id: str,
-    payload: JobExportRequest,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    job_id: str, payload: JobExportRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)
 ):
     service = JobService(db)
     export_job = await service.start_export(
-        job_id=job_id, 
+        job_id=job_id,
         background_tasks=background_tasks,
-        title=payload.title,
-        construction_type=payload.construction_type,
-        company_name=payload.company_name
+        cover_title=payload.cover_title,
+        cover_company_name=payload.cover_company_name,
+        labels=payload.labels,
     )
-    return ExportStatusResponse(
-        status=export_job.status
-    )
+    return ExportStatusResponse(status=export_job.status)
 
 
 @router.get("/jobs/{job_id}/export/status", response_model=ExportStatusResponse)
-async def get_export_status(
-    job_id: str,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_export_status(job_id: str, db: AsyncSession = Depends(get_db)):
     service = JobService(db)
     status, pdf_url, err = await service.get_export_job(job_id=job_id)
     return ExportStatusResponse(
@@ -279,10 +268,7 @@ async def get_export_status(
 
 
 @router.get("/jobs/{job_id}/export/download")
-async def download_export_pdf(
-    job_id: str,
-    db: AsyncSession = Depends(get_db)
-):
+async def download_export_pdf(job_id: str, db: AsyncSession = Depends(get_db)):
     service = JobService(db)
     pdf_path, name = await service.download_export_pdf(job_id=job_id)
 

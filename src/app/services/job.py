@@ -458,7 +458,7 @@ class JobService:
         background_tasks: BackgroundTasks,
         cover_title: Optional[str] = None,
         cover_company_name: Optional[str] = None,
-        labels: Optional[list] = None,
+        labels: Optional[dict] = {},
     ):
         result = await self.db.execute(select(Job).where(Job.id == job_id).options(selectinload(Job.user)))
         job = result.scalars().first()

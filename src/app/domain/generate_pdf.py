@@ -25,7 +25,6 @@ from app.schemas.enum import ExportStatus
 logger = logging.getLogger(__name__)
 
 
-# --- [1. 설정 및 상수 관리 (Config)] ---
 @dataclass
 class PDFLayoutConfig:
     """A4 레이아웃 및 템플릿 설정값"""
@@ -63,11 +62,9 @@ class PDFLayoutConfig:
     CAPTION_HEIGHT: float = 26
 
 
-# 전역 설정 인스턴스
 LAYOUT = PDFLayoutConfig()
 
 
-# --- [2. PDF 생성기 (Generator Layer)] ---
 class PDFGenerator:
     """
     데이터를 받아 PDF를 생성하는 역할만 전담하는 클래스
@@ -81,7 +78,6 @@ class PDFGenerator:
         self.output_path = self.tmp_dir / f"result_{int(datetime.now().timestamp())}.pdf"
 
     def _register_font(self, doc: fitz.Document):
-        """폰트 등록"""
         if self.font_path.exists():
             # 페이지마다 폰트를 쓰기 위해 글로벌하게 등록하거나, insert_text시 fontfile 지정
             # 여기서는 편의상 파일 경로를 멤버 변수로 유지하여 사용
@@ -93,11 +89,9 @@ class PDFGenerator:
         """
         GCS에서 템플릿 다운로드 (로컬 캐싱 가능)
         """
-        # 1. 이미 다운로드 받았다면 스킵 (캐싱 로직 추가 가능)
         if self.template_path.exists():
             return
 
-        # 2. GCS 다운로드 (동기 방식으로 실행됨, ThreadPool 내부에서 호출 권장)
         try:
             # 이 메소드는 run_in_executor 내부에서 불리므로 동기 client나
             # 비동기 함수라면 loop.run_until_complete 등을 고려해야 함.
@@ -106,7 +100,6 @@ class PDFGenerator:
             pass
         except Exception as e:
             logger.error(f"Failed to download template: {e}")
-            # 템플릿이 없으면 빈 페이지로 생성하도록 fallback 처리 필요
 
     def generate(self, export_info: dict, clusters: List[dict], template_local_path: Path) -> str:
         """
@@ -116,7 +109,6 @@ class PDFGenerator:
         :param template_local_path: 다운로드 된 템플릿 경로
         :return: 생성된 PDF 경로
         """
-        # 1. 템플릿 로드
         if template_local_path and template_local_path.exists():
             src_doc = fitz.open(template_local_path)
         else:
@@ -137,17 +129,14 @@ class PDFGenerator:
                 logger.error(f"FATAL: Failed to embed font {font_file}: {e}. Falling back to default.")
                 font_alias = "kr"
 
-        # 설정 추출
         label_config = export_info.get("label_config", {})
         visible_keys = label_config.get("visible_keys", [])
         global_overrides = label_config.get("overrides", {})
 
-        # 2. 클러스터(페이지) 단위 반복
         for cluster in clusters:
             out_doc.insert_pdf(src_doc, from_page=0, to_page=0)
             page = out_doc[-1]
 
-            # 헤더 (공종명)
             page.insert_textbox(
                 LAYOUT.HEADER_TITLE_RECT,
                 cluster["name"],
@@ -157,7 +146,6 @@ class PDFGenerator:
                 align=fitz.TEXT_ALIGN_LEFT,
             )
 
-            # 사진 배치
             photos = cluster["photos"]
             row_start_y = LAYOUT.ROW_1_TOP
 
@@ -171,7 +159,6 @@ class PDFGenerator:
                 if not img_path or not os.path.exists(img_path):
                     continue
 
-                # 좌표 계산
                 current_row_y = row_start_y + (idx * LAYOUT.ROW_HEIGHT)
                 row_center_y = current_row_y + (LAYOUT.ROW_HEIGHT / 2)
 
@@ -182,32 +169,35 @@ class PDFGenerator:
 
                 img_rect = fitz.Rect(img_x, img_y, img_x + img_w, img_y + img_h)
 
-                # 이미지 삽입
                 try:
                     page.insert_image(img_rect, filename=str(img_path))
                 except Exception as e:
                     logger.error(f"Image insert failed: {e}")
                     continue
 
-                # 라벨 텍스트 생성
+                # 라벨 텍스트 생성 (Individual > Global > Special > Default)
                 final_labels = {}
                 db_labels = photo_data.get("db_labels") or {}
                 photo_timestamp = photo_data.get("timestamp")
 
                 for key in visible_keys:
-                    if key in global_overrides:
-                        final_labels[key] = global_overrides[key]
-                    elif key in db_labels:
-                        final_labels[key] = db_labels[key]
+                    val = None
+                    if key in db_labels and db_labels[key]:
+                        val = db_labels[key]
+                    elif key in global_overrides and global_overrides[key]:
+                        val = global_overrides[key]
                     elif key == "일자" and photo_timestamp:
                         try:
-                            final_labels[key] = photo_timestamp.strftime("%Y.%m.%d")
+                            val = photo_timestamp.strftime("%Y.%m.%d")
                         except:
-                            final_labels[key] = "-"
-                    else:
-                        final_labels[key] = "-"
+                            val = str(photo_timestamp)
+                    elif key == "시행처":
+                        val = export_info.get("cover_company_name") or "-"
 
-                # 캡션 그리기
+                    if val is not None:
+                        final_labels[key] = val
+
+                logger.info(f"Final labels for photo: {final_labels}, {visible_keys}, {db_labels}, {global_overrides}")
                 if final_labels:
                     self._draw_caption(page, img_rect, final_labels, font_alias, font_file)
 
@@ -243,6 +233,7 @@ class PDFGenerator:
         )
 
         # 딕셔너리 순회
+        logger.info(f"Drawing caption: {labels}")
         text = "\n".join(f"{k} : {v}" for k, v in labels.items())
         page.insert_textbox(
             text_rect, text, fontname=font_alias, fontfile=font_file, fontsize=6, align=fitz.TEXT_ALIGN_LEFT
@@ -277,10 +268,7 @@ async def generate_pdf_for_session(export_job_id: str):
             job = export_job.job
             user = job.user
 
-            # 라벨 설정 파싱
             label_config = export_job.labels or {}  # { visible_keys: [], overrides: {} }
-
-            # 대표 날짜 계산 (커버용)
             cover_date_str = label_config.get("overrides", {}).get("일자")
             if not cover_date_str:
                 timestamps = [p.meta_timestamp for p in job.photos if p.meta_timestamp]
@@ -295,7 +283,6 @@ async def generate_pdf_for_session(export_job_id: str):
                 "label_config": label_config,
             }
 
-            # Cluster 데이터 구조화
             stmt_c = (
                 select(Cluster)
                 .where(Cluster.job_id == job.id)
@@ -305,12 +292,10 @@ async def generate_pdf_for_session(export_job_id: str):
             result_c = await session.execute(stmt_c)
             clusters_db = result_c.scalars().all()
 
-            # 2. [I/O] 파일 다운로드 및 준비 (임시 디렉토리 사용)
             with tempfile.TemporaryDirectory() as tmpdir_str:
                 tmpdir = Path(tmpdir_str)
                 storage_client = get_storage_client()
 
-                # A. 템플릿 다운로드 (GCS)
                 template_local_path = tmpdir / "template_base.pdf"
                 try:
                     if settings.STORAGE_TYPE in ["gcs", "s3"]:
@@ -325,12 +310,10 @@ async def generate_pdf_for_session(export_job_id: str):
                     logger.error(f"Template download failed: {e}")
                     raise e
 
-                # B. 사진 다운로드 및 데이터 구조 생성
                 processed_clusters = []
                 for cluster in clusters_db:
                     cluster_data = {"name": cluster.name or f"Cluster #{cluster.id}", "photos": []}
 
-                    # 해당 클러스터 사진 조회
                     stmt_p = (
                         select(Photo)
                         .where(Photo.cluster_id == cluster.id, Photo.deleted_at.is_(None))
@@ -342,8 +325,6 @@ async def generate_pdf_for_session(export_job_id: str):
 
                     for photo in photos_db:
                         photo_local_path = tmpdir / Path(photo.url).name
-
-                        # 사진 다운로드
                         if settings.STORAGE_TYPE in ["gcs", "s3"] and photo.url:
                             try:
                                 await storage_client.download_file(photo.url, photo_local_path)
@@ -351,7 +332,6 @@ async def generate_pdf_for_session(export_job_id: str):
                                 logger.warning(f"Photo download failed {photo.id}: {e}")
                                 photo_local_path = None
                         else:
-                            # Local Storage Path Logic
                             photo_local_path = Path("/app/assets") / photo.storage_path
 
                         cluster_data["photos"].append(
@@ -365,13 +345,9 @@ async def generate_pdf_for_session(export_job_id: str):
 
                     processed_clusters.append(cluster_data)
 
-                # 3. [CPU Bound] PDF 생성 (별도 스레드에서 실행)
-                # PyMuPDF 작업은 동기식이므로 메인 루프를 블로킹하지 않게 run_in_executor 사용
                 pdf_gen = PDFGenerator(tmpdir_str)
-
                 loop = asyncio.get_event_loop()
 
-                # executor에서 실행할 함수 래핑
                 def _run_gen():
                     return pdf_gen.generate(export_info, processed_clusters, template_local_path)
 
@@ -380,8 +356,7 @@ async def generate_pdf_for_session(export_job_id: str):
                 if not generated_pdf_path:
                     raise Exception("PDF Generation returned None")
 
-                # 4. [I/O] 결과 업로드
-                file_name = f"Job_{job.id}_Report.pdf"
+                file_name = f"{job.id}_report_{datetime.now()}.pdf"
                 final_url = None
 
                 if settings.STORAGE_TYPE in ["gcs", "s3"]:
@@ -390,7 +365,6 @@ async def generate_pdf_for_session(export_job_id: str):
                         await storage_client.save_file(f, storage_path, content_type="application/pdf")
                     final_url = storage_client.get_url(storage_path)
                 else:
-                    # Local save logic
                     target_dir = Path(settings.MEDIA_ROOT) / "exports"
                     target_dir.mkdir(parents=True, exist_ok=True)
                     target_path = target_dir / file_name
@@ -399,7 +373,6 @@ async def generate_pdf_for_session(export_job_id: str):
                     shutil.copy(generated_pdf_path, target_path)
                     final_url = f"{settings.MEDIA_URL}/exports/{file_name}"
 
-                # 완료 처리
                 export_job.status = ExportStatus.EXPORTED
                 export_job.pdf_path = final_url
                 export_job.finished_at = datetime.now()

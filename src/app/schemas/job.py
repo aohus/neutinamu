@@ -21,7 +21,7 @@ class JobClusterRequest(BaseModel):
 class JobExportRequest(BaseModel):
     cover_title: Optional[str] = None
     cover_company_name: Optional[str] = None
-    labels: Optional[list] = []
+    labels: Optional[dict] = {}
 
 
 class JobResponse(BaseModel):
@@ -41,8 +41,10 @@ class JobResponse(BaseModel):
 class PhotoResponse(BaseModel):
     id: str
     original_filename: str
-    storage_path: str
+    timestamp: Optional[datetime] = None
+    labels: Optional[dict] = None
     url: Optional[str] = None
+    storage_path: str
     thumbnail_path: Optional[str] = None
     cluster_id: Optional[str] = None
     order_index: Optional[int] = None
