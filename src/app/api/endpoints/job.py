@@ -155,6 +155,8 @@ async def get_job_details(job_id: str, db: AsyncSession = Depends(get_db)):
         # photo.url is already correct from DB
         if photo.thumbnail_url:
             photo.thumbnail_path = photo.thumbnail_url  # Override relative path with URL for response
+        if photo.meta_timestamp:
+            photo.timestamp = photo.meta_timestamp
 
     for cluster in job.clusters:
         for photo in cluster.photos:
