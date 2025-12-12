@@ -5,9 +5,7 @@ from typing import Any, List, Sequence
 from app.core.config import JobConfig
 from app.db.database import AsyncSessionLocal
 from app.domain.pipeline import PhotoClusteringPipeline
-from app.domain.storage.factory import (
-    get_storage_client,  # Import storage client factory
-)
+from app.domain.storage.base import StorageService
 from app.models.cluster import Cluster
 from app.models.job import ClusterJob, Job, JobStatus
 from app.models.photo import Photo
@@ -22,6 +20,7 @@ logger = logging.getLogger(__name__)
 # ============================================
 async def run_pipeline_task(
     job_id: str,
+    storage: "StorageService",
     min_samples: int = 3, 
     max_dist_m: float = 10.0, 
     max_alt_diff_m: float = 20.0
@@ -46,7 +45,7 @@ async def run_pipeline_task(
             await session.refresh(cluster_job)    
 
             photos = await _get_photos_from_job(session, job_id)
-            cluster_groups = await _run_pipeline(job_id, photos, min_samples, max_dist_m, max_alt_diff_m)
+            cluster_groups = await _run_pipeline(job_id, storage, photos, min_samples, max_dist_m, max_alt_diff_m)
             await _create_clusters_from_result(session, job_id, cluster_job, cluster_groups)
             await _mark_job_status(session, job_id, JobStatus.COMPLETED)
             await session.commit()
@@ -66,6 +65,7 @@ async def run_pipeline_task(
 
 async def _run_pipeline(
     job_id: str,
+    storage: "StorageService",
     photos: list[Photo],
     min_samples: int, 
     max_dist_m: float, 
@@ -80,7 +80,6 @@ async def _run_pipeline(
                          min_samples=min_samples, 
                          max_dist_m=max_dist_m, 
                          max_alt_diff_m=max_alt_diff_m)
-    storage = get_storage_client()
     pipeline = PhotoClusteringPipeline(config, storage, photos)
     clusters = await pipeline.run()
     return clusters

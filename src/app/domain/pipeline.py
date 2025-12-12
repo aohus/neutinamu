@@ -28,10 +28,10 @@ class ClusterRunner:
         """
         # Start with a single cluster containing all photos
         clusters = [photos]
-        
+
         for clusterer in self.clusterers:
             logger.info(f"Applying clusterer: {clusterer.__class__.__name__}")
-            
+
             new_clusters = []
             # Apply the clusterer to each existing cluster
             for cluster in clusters:
@@ -42,7 +42,7 @@ class ClusterRunner:
                     new_clusters.extend(sub_clusters)
                 else:
                     new_clusters.append(cluster)
-            
+
             clusters = new_clusters
             logger.info(f"Resulted in {len(clusters)} clusters.")
         return clusters
@@ -66,12 +66,12 @@ class PhotoClusteringPipeline:
         """Factory method to create clustering clusterers based on config."""
         logger.debug("Creating clusterers...")
         return [GPSCluster()]
-    
+
     async def run(self):
         logger.info(f"Pipeline run started for job {self.config.job_id}.")
-        
+
         logger.info("Resolving photo paths and extracting metadata...")
-        
+
         extracted_metas = [None] * len(self.photos)
         tasks = []
         indices_to_extract = []
@@ -84,7 +84,7 @@ class PhotoClusteringPipeline:
                     original_name=p.original_filename,
                     lat=p.meta_lat,
                     lon=p.meta_lon,
-                    alt=None, # Altitude not stored in DB yet
+                    alt=None,  # Altitude not stored in DB yet
                     timestamp=p.meta_timestamp.timestamp() if p.meta_timestamp else None,
                     focal_35mm=None,
                     orientation=None,
@@ -93,7 +93,7 @@ class PhotoClusteringPipeline:
                     white_balance=None,
                     exposure_mode=None,
                     flash=None,
-                    gps_img_direction=None
+                    gps_img_direction=None,
                 )
             else:
                 indices_to_extract.append(i)
@@ -102,23 +102,21 @@ class PhotoClusteringPipeline:
                 else:
                     full_path = self.storage.get_url(p.storage_path)
                 tasks.append(self.metadata_extractor.extract(full_path))
-            
+
         if tasks:
             logger.info(f"Extracting metadata for {len(tasks)} photos (others used cache)...")
             results = await asyncio.gather(*tasks)
             for idx, meta in zip(indices_to_extract, results):
                 extracted_metas[idx] = meta
         else:
-             logger.info("Using cached metadata for all photos.")
+            logger.info("Using cached metadata for all photos.")
 
         photos = [m for m in extracted_metas if m is not None]
         logger.info(f"Metadata ready for {len(photos)} photos.")
 
         logger.info("Starting clustering pipeline...")
         final_scenes = await self.clusterer.process(photos)
-        logger.info(
-            f"Clustering pipeline finished. Final scene count: {len(final_scenes)}"
-        )
+        logger.info(f"Clustering pipeline finished. Final scene count: {len(final_scenes)}")
 
         if not final_scenes:
             logger.warning("No scenes were generated. Skipping output generation.")

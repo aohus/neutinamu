@@ -7,7 +7,7 @@ import numpy as np
 from app.domain.clusterers.base import Clusterer
 from app.models.photometa import PhotoMeta
 from pyproj import Geod
-from sklearn.cluster import DBSCAN, OPTICS, HDBSCAN
+from sklearn.cluster import DBSCAN, HDBSCAN, OPTICS
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +37,14 @@ class GPSCluster(Clusterer):
             clusters = self._cluster_optics(valid_photos)
             
         # 노이즈(1개짜리 클러스터)를 시간상 직전 사진이 포함된 클러스터로 병합
-        clusters = self._merge_noise_to_prev_cluster(clusters)
+        # clusters = self._merge_noise_to_prev_cluster(clusters)
         # 2개짜리 미완성 클러스터끼리 병합 (20m 이내)
-        clusters = self._merge_incomplete_clusters(clusters)
+        # clusters = self._merge_incomplete_clusters(clusters)
             
         if no_gps_photos:
             clusters.append(no_gps_photos)
         return clusters
-
+    
     def _correct_outliers_by_speed(self, photos: List[PhotoMeta]) -> None:                                                                                                                                                                                                                      
         """                                                                                                                                                                                                                                                                                     
         도보 이동 기준 속도(5m/s)를 초과하는 GPS 튐 현상을 감지하여,                                                                                                                                                                                                                            
@@ -178,38 +178,6 @@ class GPSCluster(Clusterer):
                 break
                 
         return clusters
-
-    def _adjust_gps_inaccuracy(self, photos: List[PhotoMeta]) -> None:
-        """
-        도보 이동 기준 속도(5m/s)를 초과하는 GPS 튐 현상을 감지하여,
-        이전 위치로 보정합니다. (튀는 점 제거 효과)
-        """
-        timed_photos = [p for p in photos if p.timestamp is not None and p.lat is not None]
-        timed_photos.sort(key=lambda x: x.timestamp)
-        
-        max_speed_mps = 3.0 # 도보 기준 넉넉하게 약 18km/h
-
-        for i in range(1, len(timed_photos)):
-            prev = timed_photos[i-1]
-            curr = timed_photos[i]
-            
-            dt = curr.timestamp - prev.timestamp
-            if dt <= 0: continue
-            
-            # 거리 계산 (pyproj Geod 사용)
-            # inv(lon1, lat1, lon2, lat2) -> az12, az21, dist
-            _, _, dist = self.geod.inv(prev.lon, prev.lat, curr.lon, curr.lat)
-            
-            speed = dist / dt
-            
-            if speed > max_speed_mps:
-                logger.info(f"GPS Outlier detected: {curr.original_name} (Speed: {speed:.2f} m/s). Correcting to previous location.")
-                # 이전 유효 위치로 강제 보정
-                curr.lat = prev.lat
-                curr.lon = prev.lon
-                # 고도가 있다면 함께 보정
-                if prev.alt is not None:
-                    curr.alt = prev.alt
 
     def _adjust_gps_inaccuracy(self, photos: List[PhotoMeta]) -> None:
         """
