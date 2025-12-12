@@ -61,7 +61,12 @@ class Job(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User", back_populates="jobs")
-    clusters = relationship("Cluster", back_populates="job", cascade="all, delete-orphan")
+    clusters = relationship(
+        "Cluster",
+        back_populates="job",
+        order_by="Cluster.order_index",
+        cascade="all, delete-orphan",
+    )
     photos = relationship("Photo", back_populates="job", cascade="all, delete-orphan")
     cluster_job = relationship("ClusterJob", back_populates="job", cascade="all, delete-orphan")
     export_job = relationship(

@@ -19,9 +19,10 @@ class PhotoResponse(BaseModel):
     order_index: Optional[int] = 0
     cluster_id: Optional[str] = None
     timestamp: Optional[datetime] = None
-    storage_path: str
     original_filename: str
     url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    storage_path: str
     thumbnail_path: Optional[str] = None
     labels: Optional[dict] = {}
 
@@ -40,7 +41,7 @@ class PresignedUrlResponse(BaseModel):
     filename: str
     upload_url: Optional[str]
     storage_path: str
-    
+
 
 class BatchPresignedUrlResponse(BaseModel):
     strategy: str  # "presigned" or "proxy"

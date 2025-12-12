@@ -45,6 +45,7 @@ class PhotoResponse(BaseModel):
     labels: Optional[dict] = None
     url: Optional[str] = None
     storage_path: str
+    thumbnail_url: Optional[str] = None
     thumbnail_path: Optional[str] = None
     cluster_id: Optional[str] = None
     order_index: Optional[int] = None
@@ -64,8 +65,8 @@ class ClusterResponse(BaseModel):
 
 
 class JobDetailsResponse(JobResponse):
-    photos: List[PhotoResponse] = []
     clusters: List[ClusterResponse] = []
+    photos: List[PhotoResponse] = []
 
 
 class PhotoUploadResponse(BaseModel):

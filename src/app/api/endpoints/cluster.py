@@ -40,7 +40,8 @@ async def list_clusters(job_id: str, db: AsyncSession = Depends(get_db)):
                     storage_path=photo.storage_path,
                     original_filename=photo.original_filename,
                     url=photo.url,
-                    thumbnail_path=photo.thumbnail_url,
+                    thumbnail_path=photo.thumbnail_path,
+                    thumbnail_url=photo.thumbnail_url,
                 )
                 for photo in cluster.photos
             ],
