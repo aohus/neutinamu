@@ -55,22 +55,7 @@ def generate_thumbnail(image_data: bytes) -> bytes | None:
     except Exception:
         logger.info("Extracted embedded thumbnail via piexif.")
         pass
-
-    try:
-        with io.BytesIO(image_data) as f:
-            with Image.open(f) as img:
-                if img.mode != "RGB":
-                    img = img.convert("RGB")
-                img.thumbnail((800, 400))
-
-                output = io.BytesIO()
-                img.save(output, format="JPEG", quality=85)
-                return output.getvalue()
-    except OSError:
-        return None
-    except Exception as e:
-        logger.warning(f"Failed to generate thumbnail via Pillow: {e}")
-        return None
+    return
 
 
 class JobService:
