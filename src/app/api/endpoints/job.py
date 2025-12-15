@@ -188,12 +188,21 @@ async def complete_upload(
     db: AsyncSession = Depends(get_db),
 ):
     service = JobService(db)
+    
+    # Mark as UPLOADING immediately to avoid partial reads
+    trigger_ts = await service.set_job_uploading(job_id)
+
     # Offload processing to background
-    background_tasks.add_task(service.process_uploaded_files, job_id=job_id, file_info_list=uploaded_files)
+    background_tasks.add_task(
+        service.process_uploaded_files, 
+        job_id=job_id, 
+        file_info_list=uploaded_files, 
+        trigger_timestamp=trigger_ts
+    )
 
     return JobStatusResponse(
         job_id=job_id,
-        status=JobStatus.PROCESSING,
+        status=JobStatus.UPLOADING,
         message=f"Processing {len(uploaded_files)} uploaded files in background.",
     )
 

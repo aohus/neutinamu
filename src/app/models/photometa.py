@@ -18,3 +18,6 @@ class PhotoMeta:
     exposure_mode: Optional[int] = None
     flash: Optional[int] = None
     gps_img_direction: Optional[float] = None  # 방위각(도 단위)
+    thumbnail_path: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    url: Optional[str] = None

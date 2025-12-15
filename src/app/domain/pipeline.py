@@ -6,6 +6,7 @@ from typing import Dict, List
 from app.core.config import JobConfig
 from app.domain.clusterers.base import Clusterer
 from app.domain.clusterers.gps import GPSCluster
+from app.domain.clusterers.hybrid import HybridCluster
 from app.domain.metadata_extractor import MetadataExtractor
 
 # if TYPE_CHECKING:
@@ -65,7 +66,7 @@ class PhotoClusteringPipeline:
     def _create_clusterers(self, config: "JobConfig") -> List[Clusterer]:
         """Factory method to create clustering clusterers based on config."""
         logger.debug("Creating clusterers...")
-        return [GPSCluster()]
+        return [HybridCluster()]
 
     async def run(self):
         logger.info(f"Pipeline run started for job {self.config.job_id}.")
@@ -81,6 +82,7 @@ class PhotoClusteringPipeline:
             if p.meta_lat is not None and p.meta_lon is not None:
                 extracted_metas[i] = PhotoMeta(
                     path=p.storage_path,
+                    thumbnail_path=p.thumbnail_path,
                     original_name=p.original_filename,
                     lat=p.meta_lat,
                     lon=p.meta_lon,

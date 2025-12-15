@@ -10,6 +10,7 @@ class JsonFormatter(logging.Formatter):
     """
     Formatter for logging in JSON format.
     """
+
     def format(self, record):
         log_record = {
             "timestamp": self.formatTime(record, self.datefmt),
@@ -73,15 +74,15 @@ DEV_LOGGING_CONFIG = {
         # SQLAlchemy (Database) Loggers
         # Set to INFO to see SQL queries, DEBUG for results
         "sqlalchemy.engine": {
-            "level": "WARNING",
+            "level": "WARNING",  # Change to INFO or DEBUG for more verbosity
             "handlers": ["console"],
             "propagate": False,
         },
         "alembic": {
-            "level": "INFO",
+            "level": "ERROR",
             "handlers": ["console"],
             "propagate": False,
-        }
+        },
     },
 }
 
@@ -131,7 +132,7 @@ PROD_LOGGING_CONFIG = {
             "propagate": False,
         },
         "sqlalchemy.engine": {
-            "level": "WARNING", 
+            "level": "WARNING",
             "handlers": ["console_json"],
             "propagate": False,
         },
@@ -139,7 +140,7 @@ PROD_LOGGING_CONFIG = {
             "level": "WARNING",
             "handlers": ["console_json"],
             "propagate": False,
-        }
+        },
     },
 }
 
@@ -149,7 +150,7 @@ def setup_logging():
     Set up logging configuration based on the environment.
     """
     env = settings.ENVIRONMENT.lower()
-    
+
     if env == "production":
         config = PROD_LOGGING_CONFIG
     else:
@@ -157,7 +158,7 @@ def setup_logging():
 
     # Apply configuration
     logging.config.dictConfig(config)
-    
+
     # Log the setup confirmation (using a logger defined in the config)
     logger = logging.getLogger("app")
     logger.info(f"Logging setup complete for {env} environment with level {settings.LOG_LEVEL}")

@@ -42,7 +42,7 @@ class AsyncBytesIO(io.BytesIO):
         return super().read(*args, **kwargs)
 
 
-def generate_thumbnail(image_data: bytes) -> bytes | None:
+def generate_thumbnail(image_data: bytes, is_full_image: bool = False) -> bytes | None:
     """
     image_data: 파일의 전체 또는 일부(Partial) 바이트 데이터
     반환값: 썸네일 JPEG 바이트 또는 None
@@ -52,6 +52,14 @@ def generate_thumbnail(image_data: bytes) -> bytes | None:
         if exif_dict and exif_dict.get("thumbnail"):
             logger.info("Extracted embedded thumbnail via piexif.")
             return exif_dict["thumbnail"]
+        if is_full_image:
+            image_data_io = io.BytesIO(image_data)
+            with Image.open(image_data_io) as img:
+                img.thumbnail((720, 720))
+                thumb_io = io.BytesIO()
+                img.save(thumb_io, format="JPEG")
+                thumb_bytes = thumb_io.getvalue()
+                return thumb_bytes
     except Exception:
         logger.info("Extracted embedded thumbnail via piexif.")
         pass
@@ -145,34 +153,28 @@ class JobService:
         self, job_id: str, files: list[PhotoUploadRequest], origin: str = None
     ) -> BatchPresignedUrlResponse:
 
-        # 1. Job 확인
         result = await self.db.execute(select(Job).where(Job.id == job_id))
         job = result.scalars().first()
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        # 2. Storage Client 초기화 (DI로 주입받거나 설정에서 가져옴)
         storage = get_storage_client()
         response_urls = []
 
-        # MVP에서는 로컬 스토리지보다 GCS Resumable을 기본으로 추천
-
         strategy = "resumable"
         try:
-            # 3. 각 파일별 Session URL 생성
             for file_req in files:
                 target_path = f"{job.user_id}/{job.id}/photos/original/{file_req.filename}"
 
-                # 여기서 GCS와 통신하여 세션을 엽니다.
                 session_url = storage.generate_resumable_session_url(
-                    target_path=target_path, content_type=file_req.content_type, origin=origin  # Use the passed origin
+                    target_path=target_path, content_type=file_req.content_type, origin=origin
                 )
                 logger.info(f"request session_url from: '{origin}', generated session_url: '{session_url}'")
 
                 response_urls.append(
                     PresignedUrlResponse(
                         filename=file_req.filename,
-                        upload_url=session_url,  # 이것은 단순 URL이 아니라 이미 열린 세션 URL입니다.
+                        upload_url=session_url,  # 열린 세션 URL
                         storage_path=target_path,
                     )
                 )
@@ -181,12 +183,25 @@ class JobService:
             logger.warning(f"Failed resumable: {e}")
             return await self.generate_presigned_urls(job_id, files)
 
-    async def process_uploaded_files(self, job_id: str, file_info_list: list[dict]) -> list[Photo]:
+    async def set_job_uploading(self, job_id: str) -> datetime:
+        result = await self.db.execute(select(Job).where(Job.id == job_id))
+        job = result.scalars().first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        job.status = JobStatus.UPLOADING
+        job.updated_at = datetime.now().astimezone()
+        await self.db.commit()
+        await self.db.refresh(job)
+        return job.updated_at
+
+    async def process_uploaded_files(
+        self, job_id: str, file_info_list: list[dict], trigger_timestamp: Optional[datetime] = None
+    ) -> list[Photo]:
         """
         Register files that have been uploaded directly to storage.
         Optimized for 4GB RAM environment using Semaphores and Temporary Files.
         """
-        # 1. Job Validation
         result = await self.db.execute(select(Job).where(Job.id == job_id))
         job = result.scalars().first()
         if not job:
@@ -195,12 +210,11 @@ class JobService:
         storage = get_storage_client()
         photos = []
 
-        # 동시 실행 제한 (메모리 보호를 위해 동시에 10개까지만 무거운 작업 수행)
         semaphore = asyncio.Semaphore(10)
         extractor = MetadataExtractor()
 
         async def process_single_file(info: dict) -> Photo:
-            async with semaphore:  # 여기서 동시 실행 수 제한
+            async with semaphore:
                 storage_path = info["storage_path"]
                 original_filename = os.path.basename(storage_path)
                 original_filename_parts = os.path.splitext(original_filename)
@@ -209,7 +223,6 @@ class JobService:
                 base_dir = Path(storage_path).parent.parent
                 derived_thumbnail_path = str(base_dir / "thumbnail" / thumb_filename)
 
-                # 사용자가 지정한 썸네일 경로가 있으면 사용, 없으면 유도된 경로 사용
                 thumbnail_path = info.get("thumbnail_path", derived_thumbnail_path)
                 if thumbnail_path == storage_path:
                     thumbnail_path = derived_thumbnail_path
@@ -221,8 +234,6 @@ class JobService:
                 with tempfile.TemporaryDirectory() as temp_dir:
                     temp_file_path = Path(temp_dir) / original_filename
 
-                    # --- [Step 1] 썸네일 생성 시도 (Partial Download) ---
-                    # 네트워크 비용 절감을 위해 앞부분만 먼저 시도
                     if hasattr(storage, "download_partial_bytes"):
                         try:
                             # 100KB만 다운로드하여 embedded thumbnail 확인
@@ -236,29 +247,20 @@ class JobService:
                         except Exception as e:
                             logger.debug(f"Partial thumbnail generation failed for {original_filename}: {e}")
 
-                    # --- [Step 2] 전체 다운로드 (필요한 경우) ---
-                    # 썸네일 생성에 실패했거나, 메타데이터 추출을 위해 원본이 필요한 경우
-                    # 1MB 파일이므로 Disk에 쓰는 것이 메모리 관리에 유리함
-
                     full_file_downloaded = False
-
-                    # 썸네일이 없거나 메타데이터 추출을 위해 파일 다운로드가 필요한 경우
                     if not thumb_content:
                         try:
-                            # 전체 파일을 임시 경로로 다운로드
                             await storage.download_file(storage_path, temp_file_path)
                             full_file_downloaded = True
 
-                            # Full byte로 썸네일 재시도
                             if temp_file_path.exists():
                                 full_data = await asyncio.to_thread(temp_file_path.read_bytes)
-                                thumb_content = generate_thumbnail(full_data)
+                                thumb_content = generate_thumbnail(full_data, is_full_image=True)
                                 if thumb_content:
                                     logger.info(f"Generated thumbnail from full file for {original_filename}")
                         except Exception as e:
                             logger.warning(f"Full download/thumbnail generation failed for {original_filename}: {e}")
 
-                    # --- [Step 3] 썸네일 저장 ---
                     if thumb_content:
                         try:
                             await storage.save_file(AsyncBytesIO(thumb_content), derived_thumbnail_path, "image/jpeg")
@@ -269,23 +271,17 @@ class JobService:
                     else:
                         thumbnail_path = None
 
-                    # --- [Step 4] 메타데이터 추출 (로컬 파일 기반) ---
-                    # GCS URL(p.url) 대신 다운로드한 로컬 파일을 사용
                     try:
-                        # 아직 다운로드 안 했다면(썸네일은 partial로 성공했지만 메타데이터가 필요한 경우) 다운로드
                         if not full_file_downloaded:
                             await storage.download_file(storage_path, temp_file_path)
 
                         if temp_file_path.exists():
-                            # extractor가 파일 경로를 지원한다고 가정 (대부분 지원함)
-                            # 만약 bytes만 지원한다면: await extractor.extract(temp_file_path.read_bytes())
                             meta = await extractor.extract(str(temp_file_path))
                             if meta:
                                 meta_data = meta
                     except Exception as e:
                         logger.warning(f"Failed to extract metadata for {original_filename}: {e}")
 
-                # --- [Step 5] 객체 생성 ---
                 photo = Photo(
                     job_id=job_id,
                     original_filename=info["filename"],
@@ -295,7 +291,6 @@ class JobService:
                     thumbnail_url=storage.get_url(thumbnail_path) if thumbnail_path else None,
                 )
 
-                # 추출된 메타데이터 적용
                 if meta_data:
                     photo.meta_lat = meta_data.lat
                     photo.meta_lon = meta_data.lon
@@ -303,15 +298,21 @@ class JobService:
 
                 return photo
 
-        # 모든 파일에 대해 비동기 작업 스케줄링 및 실행
         if file_info_list:
             photos = await asyncio.gather(*[process_single_file(info) for info in file_info_list])
-            # None이 반환될 경우(에러 등)를 대비해 필터링 (필요 시)
             photos = [p for p in photos if p is not None]
 
-        # DB 저장
         if photos:
             self.db.add_all(photos)
+            await self.db.commit()
+
+        if trigger_timestamp:
+            stmt = (
+                update(Job)
+                .where(Job.id == job_id, Job.updated_at == trigger_timestamp)
+                .values(status=JobStatus.CREATED)
+            )
+            await self.db.execute(stmt)
             await self.db.commit()
 
         logger.info(f"Registered {len(photos)} uploaded photos for job {job_id}")
@@ -330,30 +331,23 @@ class JobService:
             logger.error(f"Upload failed: Job with ID {job_id} not found.")
             raise HTTPException(status_code=404, detail="Job not found")
 
-        # config = JobConfig(job_id=job.id) # JobConfig is for clustering params, not storage instantiation
-        storage = get_storage_client()  # Use the factory to get the correct storage service
+        storage = get_storage_client()
 
         async def process_file(file: UploadFile):
             logger.debug(f"Processing file: {file.filename}")
 
-            # Determine the storage path based on storage type
             target_path = f"{job.user_id}/{job.id}/photos/original/{file.filename}"
             content = await file.read()
-
-            # Wrap content in AsyncBytesIO because storage.save_file expects async read
             saved_path = await storage.save_file(AsyncBytesIO(content), target_path, file.content_type)
 
-            # Generate and save thumbnail
             thumb_content = generate_thumbnail(content)
             thumbnail_path = None
             if thumb_content:
-                # Thumbnail path: user_id/job_id/photos/thumbnail/filename_thumb.jpg
                 original_filename_parts = os.path.splitext(os.path.basename(file.filename))
                 thumb_filename = f"{original_filename_parts[0]}_thumb.jpg"
                 thumb_target_path = f"{job.user_id}/{job.id}/photos/thumbnail/{thumb_filename}"
                 thumbnail_path = await storage.save_file(AsyncBytesIO(thumb_content), thumb_target_path, "image/jpeg")
 
-            # Extract Metadata
             extractor = MetadataExtractor()
             meta = extractor.extract_from_bytes(content, file.filename)
 
@@ -372,7 +366,6 @@ class JobService:
             logger.debug(f"Saved {file.filename} to {saved_path}, thumbnail: {thumbnail_path}")
             return photo
 
-        # Process files concurrently
         photos = await asyncio.gather(*[process_file(file) for file in files])
 
         self.db.add_all(photos)
@@ -400,13 +393,11 @@ class JobService:
         if job.status == JobStatus.PROCESSING:
             raise HTTPException(status_code=404, detail="Job is now PROCESSING")
 
-        # Update status
         job.status = JobStatus.PENDING
         await self.db.commit()
         logger.info(f"Job {job_id} status updated to PENDING.")
 
-        # Trigger pipeline in background
-        storage = get_storage_client()  # Use the factory to get the correct storage service
+        storage = get_storage_client()
         background_tasks.add_task(run_pipeline_task, job_id, storage, min_samples, max_dist_m, max_alt_diff_m)
         logger.info(f"Clustering task for job {job_id} added to background tasks.")
 
@@ -426,12 +417,10 @@ class JobService:
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        # 상태를 PENDING -> RUNNING(soon) 으로 바꾸기 전에 표시만
         job.status = JobStatus.PENDING
         await self.db.commit()
 
         logger.info(f"Request deep_cluster logic start ")
-        # Pass parameters to the deep cluster runner
         data = await run_deep_cluster_for_job(
             job_id, min_samples=min_samples, max_dist_m=max_dist_m, max_alt_diff_m=max_alt_diff_m
         )
