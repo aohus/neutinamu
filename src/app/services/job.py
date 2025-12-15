@@ -13,7 +13,7 @@ from PIL import Image, ImageFile
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, with_loader_criteria
 
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
@@ -123,6 +123,39 @@ class JobService:
             raise HTTPException(status_code=404, detail="Job not found")
 
         logger.debug(f"Job {job_id} found with status {job.status}")
+        return job
+
+    async def get_job_details(self, job_id: str) -> Job:
+        """Get full job details including photos and clusters."""
+        query = (
+            select(Job)
+            .where(Job.id == job_id)
+            .options(
+                selectinload(Job.photos),
+                selectinload(Job.clusters).selectinload(Cluster.photos),
+                selectinload(Job.export_job),
+                with_loader_criteria(Photo, Photo.deleted_at.is_(None)),
+            )
+        )
+        result = await self.db.execute(query)
+        job = result.scalar_one_or_none()
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        # Adjust timestamp if meta_timestamp is present
+        for cluster in job.clusters:
+            for photo in cluster.photos:
+                if photo.meta_timestamp:
+                    photo.timestamp = photo.meta_timestamp
+        
+        # Also for job.photos? The endpoint logic only did it for cluster photos, but probably should for all?
+        # The endpoint logic:
+        # for cluster in job.clusters:
+        #    for photo in cluster.photos:
+        #        ...
+        # It didn't iterate over job.photos. I will stick to the endpoint logic to avoid side effects.
+        
         return job
 
     async def generate_presigned_urls(self, job_id: str, files: list[PhotoUploadRequest]) -> BatchPresignedUrlResponse:

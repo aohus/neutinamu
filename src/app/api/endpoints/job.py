@@ -119,29 +119,8 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/jobs/{job_id}/details", response_model=JobDetailsResponse)
 async def get_job_details(job_id: str, db: AsyncSession = Depends(get_db)):
     """Get full job details including photos and clusters."""
-    # Efficiently fetch everything in one query or minimal queries
-    query = (
-        select(Job)
-        .where(Job.id == job_id)
-        .options(
-            selectinload(Job.photos),
-            selectinload(Job.clusters).selectinload(Cluster.photos),
-            selectinload(Job.export_job),
-            with_loader_criteria(Photo, Photo.deleted_at.is_(None)),
-        )
-    )
-    result = await db.execute(query)
-    job = result.scalar_one_or_none()
-
-    if not job:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    for cluster in job.clusters:
-        for photo in cluster.photos:
-            if photo.meta_timestamp:
-                photo.timestamp = photo.meta_timestamp
+    service = JobService(db)
+    job = await service.get_job_details(job_id=job_id)
     return job
 
 
@@ -177,34 +156,30 @@ async def generate_upload_urls(
 
 @router.post(
     "/jobs/{job_id}/photos/complete",
-    summary="Notify upload completion for direct uploads (Async)",
-    status_code=status.HTTP_202_ACCEPTED,
-    response_model=JobStatusResponse,
+    summary="Notify upload completion for direct uploads (Sync)",
+    status_code=status.HTTP_200_OK,
+    response_model=JobDetailsResponse,
 )
 async def complete_upload(
     job_id: str,
     uploaded_files: List[dict],  # {filename: str, storage_path: str}
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     service = JobService(db)
     
-    # Mark as UPLOADING immediately to avoid partial reads
+    # Mark as UPLOADING
     trigger_ts = await service.set_job_uploading(job_id)
 
-    # Offload processing to background
-    background_tasks.add_task(
-        service.process_uploaded_files, 
+    # Process files synchronously
+    await service.process_uploaded_files(
         job_id=job_id, 
         file_info_list=uploaded_files, 
         trigger_timestamp=trigger_ts
     )
 
-    return JobStatusResponse(
-        job_id=job_id,
-        status=JobStatus.UPLOADING,
-        message=f"Processing {len(uploaded_files)} uploaded files in background.",
-    )
+    # Return updated job details
+    job = await service.get_job_details(job_id=job_id)
+    return job
 
 
 @router.post(
