@@ -17,9 +17,24 @@ jobs:
           command_timeout: "1800s" # 30 minutes
           script: |
             # 0. 빌드 전 메모리 및 리소스 정리
-            # echo "Freeing up memory and disk space..."
-            # sudo sync && sudo sysctl -w vm.drop_caches=3 || true
-            # docker system prune -f || true
+            echo "Freeing up memory and disk space..."
+            sudo sync && sudo sysctl -w vm.drop_caches=3 || true
+            docker system prune -f || true
+
+            # 0.1 Swap Space 설정 (4GB) - 메모리 부족 방지
+            if [ ! -f /swapfile ]; then
+              echo "Creating 4GB swap file..."
+              sudo fallocate -l 4G /swapfile
+              sudo chmod 600 /swapfile
+              sudo mkswap /swapfile
+              sudo swapon /swapfile
+              echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+            else
+              echo "Swap file already exists."
+            fi
+            
+            # Swap 활성화 확인
+            sudo swapon --show
 
             # 1. 작업 디렉토리 생성 및 이동
             mkdir -p snap-to-report

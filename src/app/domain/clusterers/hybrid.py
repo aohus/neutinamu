@@ -43,9 +43,10 @@ PARAMS = {
     "max_gps_tol": 44.35800514729294,
     "min_cluster_size": 2,
     "min_samples": 1,
-    "max_cluster_size": 4,
+    "max_cluster_size": 8,
     "strict_thresh": 0.15011476241322744,
-    "loose_thresh": 0.6418121751611363,
+    # "loose_thresh": 0.6418121751611363,
+    "loose_thresh": 0.5018121751611363,
     "w_merge": 0.10088178479325592,
     "w_split": 3.669884372778316,
 }
