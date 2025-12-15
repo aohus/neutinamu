@@ -21,6 +21,9 @@ COPY ./src/requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# Install CPU-only versions of torch and torchvision to reduce build size and time
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
 # ----------------------------------------------------
 # Production Stage
 # ----------------------------------------------------
