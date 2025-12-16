@@ -16,13 +16,19 @@ RUN apt-get update && \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY ./src/requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# 1. Install Torch & Torchvision FIRST (Heavy, rarely changes)
+# Using cache mount to speed up if rebuild is needed
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-# Install CPU-only versions of torch and torchvision to reduce build size and time
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# 2. Copy requirements (Light, frequently changes)
+COPY ./src/requirements.txt .
+
+# 3. Install other dependencies
+# Using cache mount here as well
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip install -r requirements.txt
 
 # ----------------------------------------------------
 # Production Stage
