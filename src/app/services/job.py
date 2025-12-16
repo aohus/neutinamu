@@ -55,9 +55,9 @@ def generate_thumbnail(image_data: bytes, is_full_image: bool = False) -> bytes 
         if is_full_image:
             image_data_io = io.BytesIO(image_data)
             with Image.open(image_data_io) as img:
-                img.thumbnail((720, 720))
+                img.thumbnail((1024, 768))
                 thumb_io = io.BytesIO()
-                img.save(thumb_io, format="JPEG")
+                img.save(thumb_io, format="JPEG", quality=85, optimize=True)
                 thumb_bytes = thumb_io.getvalue()
                 return thumb_bytes
     except Exception:
@@ -148,14 +148,14 @@ class JobService:
             for photo in cluster.photos:
                 if photo.meta_timestamp:
                     photo.timestamp = photo.meta_timestamp
-        
+
         # Also for job.photos? The endpoint logic only did it for cluster photos, but probably should for all?
         # The endpoint logic:
         # for cluster in job.clusters:
         #    for photo in cluster.photos:
         #        ...
         # It didn't iterate over job.photos. I will stick to the endpoint logic to avoid side effects.
-        
+
         return job
 
     async def generate_presigned_urls(self, job_id: str, files: list[PhotoUploadRequest]) -> BatchPresignedUrlResponse:
