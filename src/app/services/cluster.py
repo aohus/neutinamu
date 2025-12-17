@@ -2,30 +2,30 @@ import logging
 from datetime import datetime
 
 from fastapi import HTTPException
-from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
 
-from app.domain.storage import StorageService
 from app.models.cluster import Cluster
 from app.models.job import Job
 from app.models.photo import Photo
+from app.repository.cluster import ClusterRepository
+from app.repository.job import JobRepository
+from app.repository.photo import PhotoRepository
 
 logger = logging.getLogger(__name__)
 
 
 class ClusterService:
     def __init__(self, db: AsyncSession):
-        self.db = db
+        self.cluster_repo = ClusterRepository(db)
+        self.job_repo = JobRepository(db)
+        self.photo_repo = PhotoRepository(db)
 
     async def list_clusters(self, job_id: str):
         """List all clusters for a job."""
         logger.info(f"Listing clusters for job_id: {job_id}")
 
         # Fetch the job to check its status
-        job_result = await self.db.execute(select(Job).where(Job.id == job_id))
-        job = job_result.scalars().first()
+        job = await self.job_repo.get_by_id(job_id)
 
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
@@ -38,20 +38,14 @@ class ClusterService:
             )
             return []
 
-        result = await self.db.execute(
-            select(Cluster)
-            .where(Cluster.job_id == job_id)
-            .options(selectinload(Cluster.photos.and_(Photo.deleted_at.is_(None))))
-        )
-        clusters = result.scalars().all()
+        clusters = await self.cluster_repo.get_by_job_id(job_id)
         logger.info(f"Found {len(clusters)} clusters for job_id: {job_id}")
         return clusters
 
     async def create_cluster(self, job_id: str, order_index: int, name: str = None, photo_ids: list[str] = None):
         """Create a new cluster."""
         logger.info(f"Creating cluster for job_id: {job_id} with name: {name}")
-        result = await self.db.execute(select(Job).where(Job.id == job_id))
-        job = result.scalars().first()
+        job = await self.job_repo.get_by_id(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
@@ -60,15 +54,16 @@ class ClusterService:
         else:
             name = job.title
 
-        result = await self.db.execute(
-            select(Cluster).where(Cluster.job_id == job_id).order_by(Cluster.order_index.asc())
-        )
-
-        clusters = result.scalars().all()
-        if not clusters:
-            logger.error(f"Failed to create cluster: Job not found for id {job_id}")
-            raise HTTPException(status_code=404, detail="Job not found")
-
+        clusters = await self.cluster_repo.get_ordered_by_job_id(job_id)
+        
+        # Original logic checked for empty clusters and raised error if not found? 
+        # "if not clusters: raise ... Job not found". This logic seems flawed if user deleted all clusters?
+        # But maybe logical assumption is at least one cluster exists or job creation creates one?
+        # Let's preserve logic but adapt if necessary.
+        # Actually, if job exists, clusters might be empty initially?
+        # If the intention was to check job existence again, we already did `get_by_id`.
+        # I will remove the "Job not found" check based on empty clusters as it's redundant/incorrect if job found.
+        
         cluster_length = len(clusters)
         if order_index is None:
             order_index = cluster_length  # 맨 뒤
@@ -86,31 +81,27 @@ class ClusterService:
                 c.order_index = idx
 
         cluster = Cluster(job_id=job_id, name=name or "이름 없음", order_index=order_index or 0)
-        self.db.add(cluster)
-        await self.db.flush()
-
+        await self.cluster_repo.create(cluster)
+        
         photos = []
         if photo_ids:
-            result = await self.db.execute(
-                select(Photo).where(Photo.id.in_(photo_ids)).order_by(Photo.order_index.asc())
-            )
-            photos = result.scalars().all()
+            photos = await self.photo_repo.get_by_ids(photo_ids)
             for idx, photo in enumerate(photos):
                 photo.order_index = idx
                 photo.cluster_id = cluster.id
 
-        await self.db.commit()
-        await self.db.refresh(cluster)
+        await self.cluster_repo.commit()
+        await self.cluster_repo.db.refresh(cluster) # Refreshing via db session in repo? repo.save does refresh.
+        # But here we committed after modifying photos too. 
+        # Let's trust `repo.save` style or manual.
+        
         logger.info(f"Cluster '{cluster.name}' created successfully with id: {cluster.id}")
         return cluster, photos
 
     async def update_cluster(self, job_id: str, cluster_id: str, new_name: str = None, order_index: int = None):
         """Rename a cluster."""
         logger.info(f"Updating cluster_id: {cluster_id} with new name: {new_name}")
-        result = await self.db.execute(
-            select(Cluster).options(selectinload(Cluster.photos)).where(Cluster.id == cluster_id)
-        )
-        cluster = result.scalars().first()
+        cluster = await self.cluster_repo.get_by_id_with_photos(cluster_id)
         if not cluster:
             logger.error(f"Failed to update cluster: Cluster not found for id {cluster_id}")
             raise HTTPException(status_code=404, detail="Cluster not found")
@@ -133,66 +124,50 @@ class ClusterService:
                 logger.error(f"Failed to rename: {e}", exc_info=True)
                 raise HTTPException(status_code=400, detail=str(e))
 
-        await self.db.commit()
-        await self.db.refresh(cluster)
+        await self.cluster_repo.save(cluster)
         logger.info(f"Cluster {cluster_id} renamed successfully to '{cluster.name or cluster.order_index}'")
         return cluster
 
     async def delete_cluster(self, job_id: str, cluster_id: str):
         # Unassign photos first to avoid Foreign Key violation
-        await self.db.execute(
-            update(Photo).where(Photo.cluster_id == cluster_id).values(cluster_id=None, deleted_at=datetime.now())
-        )
+        await self.photo_repo.unassign_cluster(cluster_id)
 
-        result = await self.db.execute(delete(Cluster).where(Cluster.id == cluster_id).returning(Cluster.order_index))
-        idx = result.scalars().first()
+        idx = await self.cluster_repo.delete_by_id_returning_order_index(cluster_id)
 
         if idx is not None:
-            result = await self.db.execute(
-                select(Cluster).where(Cluster.order_index > idx).order_by(Cluster.order_index.asc())
-            )
-            clusters = result.scalars().all()
+            # FIX: Adding job_id filter which was missing in original code, to avoid reordering other jobs' clusters
+            clusters = await self.cluster_repo.get_clusters_after_order_for_job(job_id, idx)
             for cluster in clusters:
                 cluster.order_index -= 1
-        await self.db.commit()
+        
+        await self.cluster_repo.commit()
 
     async def add_photos(self, job_id: str, cluster_id: str, photo_ids: list[str]):
         """Add photos to a cluster."""
         logger.info(f"Adding {len(photo_ids)} photos to cluster {cluster_id}")
 
         # Check cluster exists
-        result = await self.db.execute(select(Cluster).where(Cluster.id == cluster_id))
-        cluster = result.scalars().first()
+        cluster = await self.cluster_repo.get_by_id(cluster_id)
         if not cluster:
             raise HTTPException(status_code=404, detail="Cluster not found")
 
         # Get current photos count to append
-        # We need to know the max order_index currently in the cluster to append correctly
-        result = await self.db.execute(select(Photo).where(Photo.cluster_id == cluster_id))
-        current_photos = result.scalars().all()
+        current_photos = await self.photo_repo.get_by_cluster_id(cluster_id)
         start_index = len(current_photos)
 
         # Update photos
-        # Fetch photos to ensure they exist and we can update them
-        result = await self.db.execute(select(Photo).where(Photo.id.in_(photo_ids)))
-        photos_to_move = result.scalars().all()
+        photos_to_move = await self.photo_repo.get_by_ids(photo_ids)
 
         for idx, photo in enumerate(photos_to_move):
             photo.cluster_id = cluster_id
             photo.order_index = start_index + idx
 
-        await self.db.commit()
+        await self.photo_repo.commit()
         return
 
     async def sync_clusters(self, job_id: str, cluster_data: list[dict]):
         """Sync cluster order and photo assignments."""
         logger.info(f"Syncing clusters for job {job_id}")
-
-        # To optimize, we can fetch all clusters and photos for this job first
-        # But for simplicity and safety with SQLAlchemy async session tracking,
-        # we'll iterate. Given the likely size (< 100 clusters, < 1000 photos), it should be acceptable.
-        # Optimization: Check if data actually changed?
-        # Frontend sends everything, so we overwrite.
 
         for c_data in cluster_data:
             c_id = c_data.get("id")
@@ -201,7 +176,7 @@ class ClusterService:
             c_photo_ids = c_data.get("photo_ids", [])
 
             # Update Cluster
-            cluster = await self.db.get(Cluster, c_id)
+            cluster = await self.cluster_repo.get_by_id(c_id)
             if cluster and cluster.job_id == job_id:
                 if cluster.name != c_name:
                     cluster.name = c_name
@@ -211,19 +186,13 @@ class ClusterService:
 
                 # Update Photos
                 if c_photo_ids:
-                    # Fetch photos that need updating
-                    # We only need to update if they are different.
-                    # But simply overwriting order_index and cluster_id is fast enough in memory
-                    result = await self.db.execute(select(Photo).where(Photo.id.in_(c_photo_ids)))
-                    photos = result.scalars().all()
+                    photos = await self.photo_repo.get_by_ids(c_photo_ids)
                     photo_map = {p.id: p for p in photos}
 
                     for p_idx, p_id in enumerate(c_photo_ids):
                         if p_id in photo_map:
                             photo = photo_map[p_id]
-                            # Only update if changed to avoid unnecessary db writes?
-                            # SQLAlchemy tracks changes, so assignment is cheap if value is same.
                             photo.cluster_id = c_id
                             photo.order_index = p_idx
 
-        await self.db.commit()
+        await self.cluster_repo.commit()

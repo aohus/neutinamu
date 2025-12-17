@@ -1,21 +1,23 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 
 from app.models.cluster import Cluster
 from app.models.photo import Photo
-from app.schemas.photo import PhotoMove, PhotoResponse, PhotoUpdate
+from app.schemas.photo import PhotoMove, PhotoUpdate
 from app.services.cluster import ClusterService
+from app.repository.photo import PhotoRepository
+from app.repository.cluster import ClusterRepository
 
 logger = logging.getLogger(__name__)
 
 
 class PhotoService:
     def __init__(self, db: AsyncSession):
-        self.db = db
+        self.photo_repo = PhotoRepository(db)
+        self.cluster_repo = ClusterRepository(db)
 
     async def list_photos(
         self,
@@ -23,8 +25,7 @@ class PhotoService:
     ):
         """List all photos for a job."""
         logger.info(f"Listing photos for job_id: {job_id}")
-        result = await self.db.execute(select(Photo).where(Photo.job_id == job_id))
-        photos = result.scalars().all()
+        photos = await self.photo_repo.get_by_job_id(job_id)
         logger.info(f"Found {len(photos)} photos for job_id: {job_id}")
         return photos
 
@@ -34,8 +35,7 @@ class PhotoService:
         payload: PhotoUpdate,
     ):
         """Update photo metadata (e.g. labels)."""
-        result = await self.db.execute(select(Photo).where(Photo.id == photo_id))
-        photo = result.scalars().first()
+        photo = await self.photo_repo.get_by_id(photo_id)
 
         if not photo:
             logger.error(f"Update failed: Photo {photo_id} not found.")
@@ -45,8 +45,7 @@ class PhotoService:
             if payload.labels is not None:
                 photo.labels = payload.labels
 
-            await self.db.commit()
-            await self.db.refresh(photo)
+            await self.photo_repo.save(photo)
             logger.info(f"Successfully updated photo {photo_id}")
             return photo
 
@@ -60,8 +59,7 @@ class PhotoService:
         new_order_index = payload.order_index
 
         # Find photo first to get job_id
-        result = await self.db.execute(select(Photo).where(Photo.id == photo_id))
-        photo = result.scalars().first()
+        photo = await self.photo_repo.get_by_id(photo_id)
         if not photo:
             logger.error(f"Move failed: Photo with id {photo_id} not found.")
             raise HTTPException(status_code=404, detail="Photo not found")
@@ -74,11 +72,13 @@ class PhotoService:
         # Handle 'reserve' creation if needed
         if target_cluster_id == "reserve":
             # Check if reserve exists
-            result = await self.db.execute(
-                select(Cluster).where(Cluster.job_id == photo.job_id, Cluster.name == "reserve")
-            )
-            cluster = result.scalars().first()
+            cluster = await self.cluster_repo.get_by_name(photo.job_id, "reserve")
             if not cluster:
+                # Assuming ClusterService can be used here or we should duplicate logic?
+                # Using cluster_service as passed in argument is fine, but it creates circular dependency risk if types are imported.
+                # Here cluster_service is passed as arg, so it's runtime dependency.
+                # However, cleaner to use repo directly if simple. 
+                # ClusterService.create_cluster handles reordering etc. Better to use it if possible.
                 cluster, _ = await cluster_service.create_cluster(job_id=photo.job_id, order_index=-1, name="reserve")
             target_cluster_id = cluster.id
 
@@ -87,13 +87,8 @@ class PhotoService:
             if source_cluster_id == target_cluster_id:
                 if new_order_index is not None:
                     # Fetch all photos in this cluster
-                    result = await self.db.execute(
-                        select(Photo)
-                        .where(Photo.cluster_id == source_cluster_id, Photo.deleted_at.is_(None))
-                        .order_by(Photo.order_index.asc())
-                    )
-                    photos = result.scalars().all()
-
+                    photos = await self.photo_repo.get_by_cluster_id_ordered(source_cluster_id)
+                    
                     # Remove from current position
                     current_list = [p for p in photos if p.id != photo_id]
 
@@ -113,8 +108,8 @@ class PhotoService:
             # Case 2: Inter-cluster move
             else:
                 # Check if target cluster exists
-                result = await self.db.execute(select(Cluster).where(Cluster.id == target_cluster_id))
-                if not result.scalars().first():
+                target_cluster = await self.cluster_repo.get_by_id(target_cluster_id)
+                if not target_cluster:
                     logger.error(f"Move failed: Target cluster {target_cluster_id} not found.")
                     raise HTTPException(status_code=404, detail="Target cluster not found")
 
@@ -123,13 +118,8 @@ class PhotoService:
                 # as long as order is relative. We can skip source reordering for performance.
 
                 # 2. Add to target
-                result = await self.db.execute(
-                    select(Photo)
-                    .where(Photo.cluster_id == target_cluster_id, Photo.deleted_at.is_(None))
-                    .order_by(Photo.order_index.asc())
-                )
-                target_photos = list(result.scalars().all())
-
+                target_photos = await self.photo_repo.get_by_cluster_id_ordered(target_cluster_id)
+                
                 # Insert
                 if new_order_index is None:
                     new_order_index = len(target_photos)
@@ -146,21 +136,18 @@ class PhotoService:
                 for idx, p in enumerate(target_photos):
                     p.order_index = idx
 
-            await self.db.commit()
-            await self.db.flush()
+            await self.photo_repo.commit()
+            await self.photo_repo.flush() # Is flush needed after commit? Usually commit implies flush.
             logger.info(f"Successfully moved photo {photo.id} to cluster {target_cluster_id}")
 
             # Check if source cluster became empty (only if it wasn't reserve and different from target)
             if source_cluster_id != target_cluster_id:
                 # Check source cluster type or name. If it's 'reserve', don't delete.
-                result = await self.db.execute(select(Cluster).where(Cluster.id == source_cluster_id))
-                src_cluster_obj = result.scalars().first()
+                src_cluster_obj = await self.cluster_repo.get_by_id(source_cluster_id)
 
                 if src_cluster_obj and src_cluster_obj.name != "reserve":
-                    result = await self.db.execute(
-                        select(Photo).where(Photo.cluster_id == source_cluster_id, Photo.deleted_at.is_(None))
-                    )
-                    if not result.scalars().first():
+                    active_photos = await self.photo_repo.get_active_by_cluster_id(source_cluster_id)
+                    if not active_photos:
                         await cluster_service.delete_cluster(job_id=photo.job_id, cluster_id=source_cluster_id)
 
         except Exception as e:
@@ -172,31 +159,18 @@ class PhotoService:
         photo_id: str,
     ):
         """Delete a photo from a cluster."""
-        result = await self.db.execute(select(Photo).where(Photo.id == photo_id))
-        photo = result.scalars().first()
+        photo = await self.photo_repo.get_by_id(photo_id)
 
-        logger.info(f"Deleting photo {photo_id} from cluster {photo.cluster_id}")
+        logger.info(f"Deleting photo {photo_id}")
         if not photo:
             logger.error(f"Delete failed: Photo {photo_id} not found.")
             raise HTTPException(status_code=404, detail="Photo not found")
 
-        # if photo.cluster_id != cluster_id:
-        #     logger.error(f"Delete failed: Photo {photo_id} does not belong to cluster {cluster_id}.")
-        #     raise HTTPException(status_code=400, detail="Photo does not belong to this cluster")
-
-        # Get cluster for name
-        # result = await self.db.execute(select(Cluster).where(Cluster.id == cluster_id))
-        # cluster = result.scalars().first()
-        # if not cluster:
-        #     # This should ideally not happen if the above checks passed
-        #     logger.error(f"Delete failed: Cluster {cluster_id} not found unexpectedly.")
-        #     raise HTTPException(status_code=404, detail="Cluster not found")
-
         try:
             logger.debug(f"Deleting photo file '{photo.original_filename}'")
             photo.deleted_at = datetime.now()
-            # await self.db.delete(photo)
-            await self.db.commit()
+            # await self.db.delete(photo) # Logic was commented out in original too
+            await self.photo_repo.save(photo)
             logger.info(f"Successfully deleted photo {photo_id} from job {photo.job_id}")
 
         except Exception as e:
