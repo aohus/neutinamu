@@ -80,24 +80,8 @@ class PhotoService:
             # Case 1: Intra-cluster move (Reordering within same cluster)
             if source_cluster_id == target_cluster_id:
                 if new_order_index is not None:
-                    # Fetch all photos in this cluster
                     photos = await self.uow.photos.get_by_cluster_id_ordered(source_cluster_id)
-                    
-                    # Remove from current position
-                    current_list = [p for p in photos if p.id != photo_id]
-
-                    # Insert at new position
-                    # Clamp index
-                    if new_order_index < 0:
-                        new_order_index = 0
-                    if new_order_index > len(current_list):
-                        new_order_index = len(current_list)
-
-                    current_list.insert(new_order_index, photo)
-
-                    # Update indices
-                    for idx, p in enumerate(current_list):
-                        p.order_index = idx
+                    self._insert_and_reindex(photos, photo, new_order_index)
 
             # Case 2: Inter-cluster move
             else:
@@ -107,26 +91,11 @@ class PhotoService:
                     logger.error(f"Move failed: Target cluster {target_cluster_id} not found.")
                     raise HTTPException(status_code=404, detail="Target cluster not found")
 
-                # 1. Remove from source (implicitly done by changing cluster_id)
-                
-                # 2. Add to target
                 target_photos = await self.uow.photos.get_by_cluster_id_ordered(target_cluster_id)
-                
-                # Insert
-                if new_order_index is None:
-                    new_order_index = len(target_photos)
+                self._insert_and_reindex(target_photos, photo, new_order_index)
 
-                if new_order_index < 0:
-                    new_order_index = 0
-                if new_order_index > len(target_photos):
-                    new_order_index = len(target_photos)
-
-                target_photos.insert(new_order_index, photo)
-
-                # Update photo properties and target indices
+                # Update photo cluster
                 photo.cluster_id = target_cluster_id
-                for idx, p in enumerate(target_photos):
-                    p.order_index = idx
 
             await self.uow.commit()
             # await self.uow.flush() # Commit implies flush
@@ -142,7 +111,7 @@ class PhotoService:
                         # Replicate delete logic using UoW to avoid circular dependency on ClusterService
                         await self.uow.photos.unassign_cluster(source_cluster_id)
                         idx = await self.uow.clusters.delete_by_id_returning_order_index(source_cluster_id)
-                        
+
                         if idx is not None:
                             clusters = await self.uow.clusters.get_clusters_after_order_for_job(photo.job_id, idx)
                             for cluster in clusters:
@@ -152,6 +121,28 @@ class PhotoService:
         except Exception as e:
             logger.error(f"Error moving photo {photo.id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
+
+    def _insert_and_reindex(self, photos: list[Photo], photo: Photo, new_index: int | None):
+        """
+        Helper to insert a photo into a list at a specific index and re-index the list.
+        Removes the photo from the list if it's already there (for intra-cluster moves).
+        """
+        # Remove photo if present to avoid duplication/confusion
+        photos = [p for p in photos if p.id != photo.id]
+
+        if new_index is None:
+            new_index = len(photos)
+
+        # Clamp index
+        if new_index < 0:
+            new_index = 0
+        if new_index > len(photos):
+            new_index = len(photos)
+
+        photos.insert(new_index, photo)
+
+        for idx, p in enumerate(photos):
+            p.order_index = idx
 
     async def delete_photo(
         self,

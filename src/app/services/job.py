@@ -1,5 +1,4 @@
 import asyncio
-import io
 import logging
 import os
 import tempfile
@@ -7,9 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import piexif
 from fastapi import BackgroundTasks, File, HTTPException, UploadFile
-from PIL import Image, ImageFile
+from PIL import ImageFile
 
 from app.common.uow import UnitOfWork
 from app.core.config import settings
@@ -26,39 +24,12 @@ from app.schemas.photo import (
     PhotoUploadRequest,
     PresignedUrlResponse,
 )
+from app.utils.fileIO import AsyncBytesIO
+from app.utils.image import generate_thumbnail
 
 logger = logging.getLogger(__name__)
 # 부분 다운로드된 파일(Truncated Image) 처리 허용
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-
-
-class AsyncBytesIO(io.BytesIO):
-    async def read(self, *args, **kwargs):
-        return super().read(*args, **kwargs)
-
-
-def generate_thumbnail(image_data: bytes, is_full_image: bool = False) -> bytes | None:
-    """
-    image_data: 파일의 전체 또는 일부(Partial) 바이트 데이터
-    반환값: 썸네일 JPEG 바이트 또는 None
-    """
-    try:
-        exif_dict = piexif.load(image_data)
-        if exif_dict and exif_dict.get("thumbnail"):
-            logger.info("Extracted embedded thumbnail via piexif.")
-            return exif_dict["thumbnail"]
-        if is_full_image:
-            image_data_io = io.BytesIO(image_data)
-            with Image.open(image_data_io) as img:
-                img.thumbnail((1024, 768))
-                thumb_io = io.BytesIO()
-                img.save(thumb_io, format="JPEG", quality=85, optimize=True)
-                thumb_bytes = thumb_io.getvalue()
-                return thumb_bytes
-    except Exception:
-        logger.info("Extracted embedded thumbnail via piexif.")
-        pass
-    return
 
 
 class JobService:
@@ -94,7 +65,7 @@ class JobService:
             user_id = job.user_id
             await self.uow.jobs.delete_job(job)
             await self.uow.commit()
-            
+
             job_object_path = f"{user_id}/{job_id}/"
             await storage.delete_directory(job_object_path)
 
@@ -190,6 +161,7 @@ class JobService:
         job.status = JobStatus.UPLOADING
         job.updated_at = datetime.now().astimezone()
         await self.uow.jobs.save(job)
+        await self.uow.commit()
         return job.updated_at
 
     async def process_uploaded_files(
@@ -209,93 +181,10 @@ class JobService:
         semaphore = asyncio.Semaphore(10)
         extractor = MetadataExtractor()
 
-        async def process_single_file(info: dict) -> Photo:
-            async with semaphore:
-                storage_path = info["storage_path"]
-                original_filename = os.path.basename(storage_path)
-                original_filename_parts = os.path.splitext(original_filename)
-                thumb_filename = f"{original_filename_parts[0]}_thumb.jpg"
-
-                base_dir = Path(storage_path).parent.parent
-                derived_thumbnail_path = str(base_dir / "thumbnail" / thumb_filename)
-
-                thumbnail_path = info.get("thumbnail_path", derived_thumbnail_path)
-                if thumbnail_path == storage_path:
-                    thumbnail_path = derived_thumbnail_path
-
-                thumb_content = None
-                meta_data = None
-
-                # 임시 디렉토리 생성 (작업 후 자동 삭제됨)
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    temp_file_path = Path(temp_dir) / original_filename
-
-                    if hasattr(storage, "download_partial_bytes"):
-                        try:
-                            # 100KB만 다운로드하여 embedded thumbnail 확인
-                            partial_data = await asyncio.to_thread(
-                                storage.download_partial_bytes, storage_path, 100 * 1024
-                            )
-                            if partial_data:
-                                thumb_content = generate_thumbnail(partial_data)
-                                if thumb_content:
-                                    logger.info(f"Generated thumbnail from partial bytes for {original_filename}")
-                        except Exception as e:
-                            logger.debug(f"Partial thumbnail generation failed for {original_filename}: {e}")
-
-                    full_file_downloaded = False
-                    if not thumb_content:
-                        try:
-                            await storage.download_file(storage_path, temp_file_path)
-                            full_file_downloaded = True
-
-                            if temp_file_path.exists():
-                                full_data = await asyncio.to_thread(temp_file_path.read_bytes)
-                                thumb_content = generate_thumbnail(full_data, is_full_image=True)
-                                if thumb_content:
-                                    logger.info(f"Generated thumbnail from full file for {original_filename}")
-                        except Exception as e:
-                            logger.warning(f"Full download/thumbnail generation failed for {original_filename}: {e}")
-
-                    if thumb_content:
-                        try:
-                            await storage.save_file(AsyncBytesIO(thumb_content), derived_thumbnail_path, "image/jpeg")
-                            thumbnail_path = derived_thumbnail_path
-                        except Exception as e:
-                            logger.warning(f"Failed to save thumbnail for {original_filename}: {e}")
-                            thumbnail_path = None
-                    else:
-                        thumbnail_path = None
-
-                    try:
-                        if not full_file_downloaded:
-                            await storage.download_file(storage_path, temp_file_path)
-
-                        if temp_file_path.exists():
-                            meta = await extractor.extract(str(temp_file_path))
-                            if meta:
-                                meta_data = meta
-                    except Exception as e:
-                        logger.warning(f"Failed to extract metadata for {original_filename}: {e}")
-
-                photo = Photo(
-                    job_id=job_id,
-                    original_filename=info["filename"],
-                    storage_path=storage_path,
-                    thumbnail_path=thumbnail_path,
-                    url=storage.get_url(storage_path),
-                    thumbnail_url=storage.get_url(thumbnail_path) if thumbnail_path else None,
-                )
-
-                if meta_data:
-                    photo.meta_lat = meta_data.lat
-                    photo.meta_lon = meta_data.lon
-                    photo.meta_timestamp = datetime.fromtimestamp(meta_data.timestamp) if meta_data.timestamp else None
-
-                return photo
-
         if file_info_list:
-            photos = await asyncio.gather(*[process_single_file(info) for info in file_info_list])
+            photos = await asyncio.gather(
+                *[self._process_single_file(job_id, info, storage, extractor, semaphore) for info in file_info_list]
+            )
             photos = [p for p in photos if p is not None]
 
         if photos:
@@ -304,8 +193,95 @@ class JobService:
         if trigger_timestamp:
             await self.uow.jobs.update_status_by_id(job_id, JobStatus.CREATED, trigger_timestamp)
 
+        await self.uow.commit()
+
         logger.info(f"Registered {len(photos)} uploaded photos for job {job_id}")
         return photos
+
+    async def _process_single_file(
+        self, job_id: str, info: dict, storage, extractor: MetadataExtractor, semaphore: asyncio.Semaphore
+    ) -> Optional[Photo]:
+        async with semaphore:
+            storage_path = info["storage_path"]
+            original_filename = os.path.basename(storage_path)
+            original_filename_parts = os.path.splitext(original_filename)
+            thumb_filename = f"{original_filename_parts[0]}_thumb.jpg"
+
+            base_dir = Path(storage_path).parent.parent
+            derived_thumbnail_path = str(base_dir / "thumbnail" / thumb_filename)
+
+            thumbnail_path = info.get("thumbnail_path", derived_thumbnail_path)
+            if thumbnail_path == storage_path:
+                thumbnail_path = derived_thumbnail_path
+
+            thumb_content = None
+            meta_data = None
+
+            # 임시 디렉토리 생성 (작업 후 자동 삭제됨)
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_file_path = Path(temp_dir) / original_filename
+
+                if hasattr(storage, "download_partial_bytes"):
+                    try:
+                        # 100KB만 다운로드하여 embedded thumbnail 확인
+                        partial_data = await asyncio.to_thread(storage.download_partial_bytes, storage_path, 100 * 1024)
+                        if partial_data:
+                            thumb_content = generate_thumbnail(partial_data)
+                            if thumb_content:
+                                logger.info(f"Generated thumbnail from partial bytes for {original_filename}")
+                    except Exception as e:
+                        logger.debug(f"Partial thumbnail generation failed for {original_filename}: {e}")
+
+                full_file_downloaded = False
+                if not thumb_content:
+                    try:
+                        await storage.download_file(storage_path, temp_file_path)
+                        full_file_downloaded = True
+
+                        if temp_file_path.exists():
+                            full_data = await asyncio.to_thread(temp_file_path.read_bytes)
+                            thumb_content = generate_thumbnail(full_data, is_full_image=True)
+                            if thumb_content:
+                                logger.info(f"Generated thumbnail from full file for {original_filename}")
+                    except Exception as e:
+                        logger.warning(f"Full download/thumbnail generation failed for {original_filename}: {e}")
+
+                if thumb_content:
+                    try:
+                        await storage.save_file(AsyncBytesIO(thumb_content), derived_thumbnail_path, "image/jpeg")
+                        thumbnail_path = derived_thumbnail_path
+                    except Exception as e:
+                        logger.warning(f"Failed to save thumbnail for {original_filename}: {e}")
+                        thumbnail_path = None
+                else:
+                    thumbnail_path = None
+
+                try:
+                    if not full_file_downloaded:
+                        await storage.download_file(storage_path, temp_file_path)
+
+                    if temp_file_path.exists():
+                        meta = await extractor.extract(str(temp_file_path))
+                        if meta:
+                            meta_data = meta
+                except Exception as e:
+                    logger.warning(f"Failed to extract metadata for {original_filename}: {e}")
+
+            photo = Photo(
+                job_id=job_id,
+                original_filename=info["filename"],
+                storage_path=storage_path,
+                thumbnail_path=thumbnail_path,
+                url=storage.get_url(storage_path),
+                thumbnail_url=storage.get_url(thumbnail_path) if thumbnail_path else None,
+            )
+
+            if meta_data:
+                photo.meta_lat = meta_data.lat
+                photo.meta_lon = meta_data.lon
+                photo.meta_timestamp = datetime.fromtimestamp(meta_data.timestamp) if meta_data.timestamp else None
+
+            return photo
 
     async def upload_photos(
         self,
@@ -357,6 +333,7 @@ class JobService:
         photos = await asyncio.gather(*[process_file(file) for file in files])
 
         await self.uow.jobs.add_all(photos)
+        await self.uow.commit()
 
         logger.info(f"Successfully uploaded and saved {len(photos)} photos for job {job_id}.")
         return photos
@@ -454,12 +431,12 @@ class JobService:
 
     async def download_export_pdf(self, job_id):
         logger.debug(f"Fetching job with ID: {job_id}")
-        
+
         job = await self.uow.jobs.get_by_id(job_id)
         if not job:
-             logger.warning(f"Job with ID {job_id} not found.")
-             raise HTTPException(status_code=404, detail="Job not found")
-        
+            logger.warning(f"Job with ID {job_id} not found.")
+            raise HTTPException(status_code=404, detail="Job not found")
+
         export_job = await self.uow.jobs.get_latest_export_job(job_id)
         if not export_job or export_job.status != ExportStatus.EXPORTED or not export_job.pdf_path:
             raise HTTPException(status_code=404, detail="No finished export for this session")

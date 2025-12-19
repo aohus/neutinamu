@@ -1,10 +1,19 @@
 import json
 import logging
 from pathlib import Path
-
+import io
 import aiofiles
 
 logger = logging.getLogger(__name__)
+
+
+class AsyncBytesIO(io.BytesIO):
+    """
+    BytesIO wrapper that enables async reading.
+    Useful for interfaces expecting an async file-like object.
+    """
+    async def read(self, *args, **kwargs):
+        return super().read(*args, **kwargs)
 
 
 async def read_file(filepath: str) -> dict:
@@ -38,4 +47,3 @@ async def write_file(filepath: str, data) -> None:
         else:
             await f.write(str(data))
     logger.info(f"Write file successfully! File: {filepath}")
-
