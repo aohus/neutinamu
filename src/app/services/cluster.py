@@ -108,6 +108,7 @@ class ClusterService:
                 raise HTTPException(status_code=400, detail=str(e))
 
         await self.uow.clusters.save(cluster)
+        await self.uow.commit()
         logger.info(f"Cluster {cluster_id} renamed successfully to '{cluster.name or cluster.order_index}'")
         return cluster
 

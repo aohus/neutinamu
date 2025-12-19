@@ -68,13 +68,12 @@ class JobRepository:
 
     async def create_job(self, job: Job) -> Job:
         self.db.add(job)
-        await self.db.commit()
+        await self.db.flush()
         await self.db.refresh(job)
         return job
 
     async def delete_job(self, job: Job):
         await self.db.delete(job)
-        await self.db.commit()
 
     async def update_job_status(self, job_id: str, status: JobStatus, updated_at: Optional[datetime] = None):
         values = {"status": status}
@@ -90,13 +89,12 @@ class JobRepository:
 
     async def save(self, obj):
         self.db.add(obj)
-        await self.db.commit()
+        await self.db.flush()
         await self.db.refresh(obj)
         return obj
 
     async def add_all(self, objects: list):
         self.db.add_all(objects)
-        await self.db.commit()
 
     async def update_status_by_id(self, job_id: str, status: JobStatus, timestamp_filter: Optional[datetime] = None):
         # Specific logic from process_uploaded_files
@@ -109,7 +107,6 @@ class JobRepository:
         
         stmt = stmt.values(status=status)
         await self.db.execute(stmt)
-        await self.db.commit()
 
     async def get_latest_export_job(self, job_id: str) -> Optional[ExportJob]:
         result = await self.db.execute(
@@ -119,6 +116,6 @@ class JobRepository:
     
     async def create_export_job(self, export_job: ExportJob) -> ExportJob:
         self.db.add(export_job)
-        await self.db.commit()
+        await self.db.flush()
         await self.db.refresh(export_job)
         return export_job

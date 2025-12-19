@@ -81,6 +81,7 @@ class JobService:
 
         job = Job(user_id=user.user_id, title=title, construction_type=construction_type, company_name=company_name)
         job = await self.uow.jobs.create_job(job)
+        await self.uow.commit()
         logger.info(f"Job created successfully with ID: {job.id}")
         return job
 
@@ -92,6 +93,7 @@ class JobService:
         if job is not None:
             user_id = job.user_id
             await self.uow.jobs.delete_job(job)
+            await self.uow.commit()
             
             job_object_path = f"{user_id}/{job_id}/"
             await storage.delete_directory(job_object_path)
@@ -379,6 +381,7 @@ class JobService:
 
         job.status = JobStatus.PENDING
         await self.uow.jobs.save(job)
+        await self.uow.commit()
         logger.info(f"Job {job_id} status updated to PENDING.")
 
         storage = get_storage_client()
@@ -402,6 +405,7 @@ class JobService:
 
         job.status = JobStatus.PENDING
         await self.uow.jobs.save(job)
+        await self.uow.commit()
 
         logger.info(f"Request deep_cluster logic start ")
         data = await run_deep_cluster_for_job(
@@ -438,6 +442,7 @@ class JobService:
         )
 
         export_job = await self.uow.jobs.create_export_job(export_job)
+        await self.uow.commit()
         background_tasks.add_task(generate_pdf_for_session, export_job.id)
         return export_job
 

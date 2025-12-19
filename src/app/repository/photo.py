@@ -43,7 +43,7 @@ class PhotoRepository:
 
     async def save(self, photo: Photo) -> Photo:
         self.db.add(photo)
-        await self.db.commit()
+        await self.db.flush()
         await self.db.refresh(photo)
         return photo
 
@@ -54,9 +54,6 @@ class PhotoRepository:
         await self.db.execute(
             update(Photo).where(Photo.cluster_id == cluster_id).values(cluster_id=None, deleted_at=datetime.now())
         )
-
-    async def commit(self):
-        await self.db.commit()
 
     async def flush(self):
         await self.db.flush()

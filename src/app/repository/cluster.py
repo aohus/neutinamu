@@ -1,4 +1,4 @@
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,29 +41,6 @@ class ClusterRepository:
         result = await self.db.execute(select(Cluster).where(Cluster.job_id == job_id, Cluster.name == name))
         return result.scalars().first()
 
-    async def get_clusters_after_order(self, order_index: int) -> Sequence[Cluster]:
-        # This logic seems incomplete without job_id, but the service usage context usually implies filtering.
-        # However, for a repo method, it should probably take job_id.
-        # In delete_cluster logic: select(Cluster).where(Cluster.order_index > idx) -- this is risky if not filtered by job_id!
-        # The service code:
-        # result = await self.db.execute(delete(Cluster).where(Cluster.id == cluster_id).returning(Cluster.order_index))
-        # idx = result.scalars().first()
-        # if idx is not None:
-        #    result = await self.db.execute(select(Cluster).where(Cluster.order_index > idx).order_by(Cluster.order_index.asc()))
-        #
-        # WAIT! The original service code for delete_cluster reordering is BUGGY if it doesn't filter by job_id.
-        # `select(Cluster).where(Cluster.order_index > idx)` selects ALL clusters in the DB with that index?
-        # Ah, if `job_id` is not in the where clause, it will reorder clusters of OTHER jobs too!
-        # This looks like a bug in the original code.
-        # I should probably fix it or strictly follow it.
-        # "Rigorously adhere to existing project conventions...".
-        # But "Fix bugs...". This is a dangerous bug. I will assume it implies context of the same job.
-        # Let's check `ClusterService.delete_cluster`. It receives `job_id`.
-        # It executes `delete(Cluster).where(Cluster.id == cluster_id)`. Cluster IDs are UUIDs likely unique.
-        # But the subsequent select `select(Cluster).where(Cluster.order_index > idx)` IS missing job_id.
-        # I should fix this by adding job_id to the repo method and usage.
-        pass
-
     async def get_clusters_after_order_for_job(self, job_id: str, order_index: int) -> Sequence[Cluster]:
         result = await self.db.execute(
             select(Cluster)
@@ -79,22 +56,16 @@ class ClusterRepository:
 
     async def save(self, cluster: Cluster) -> Cluster:
         self.db.add(cluster)
-        await self.db.commit()
+        await self.db.flush()
         await self.db.refresh(cluster)
         return cluster
 
     async def delete(self, cluster: Cluster):
         await self.db.delete(cluster)
-        # We might commit here or let service handle it.
-        # Since logic involves reordering after delete, maybe we shouldn't commit immediately if we want atomicity?
-        # Service `delete_cluster` commits at the end.
 
     async def delete_by_id_returning_order_index(self, cluster_id: str) -> Optional[int]:
         result = await self.db.execute(delete(Cluster).where(Cluster.id == cluster_id).returning(Cluster.order_index))
         return result.scalars().first()
-
-    async def commit(self):
-        await self.db.commit()
 
     async def flush(self):
         await self.db.flush()
