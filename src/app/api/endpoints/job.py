@@ -14,7 +14,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, with_loader_criteria
 
+from app.api.deps import get_uow
 from app.api.endpoints.auth import get_current_user
+from app.common.uow import UnitOfWork
 from app.db.database import get_db
 from app.domain.storage.factory import get_storage_client
 from app.models.cluster import Cluster
@@ -45,8 +47,8 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/jobs", response_model=list[JobResponse], status_code=status.HTTP_200_OK)
-async def get_jobs(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    service = JobService(db)
+async def get_jobs(current_user: User = Depends(get_current_user), uow: UnitOfWork = Depends(get_uow)):
+    service = JobService(uow)
     jobs = await service.get_jobs(current_user)
     return [
         JobResponse(
@@ -64,9 +66,9 @@ async def get_jobs(current_user: User = Depends(get_current_user), db: AsyncSess
 async def create_job(
     payload: JobRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    uow: UnitOfWork = Depends(get_uow),
 ):
-    service = JobService(db)
+    service = JobService(uow)
     logger.info(f"User {current_user.user_id} creating job with title: '{payload.title}'")
     job = await service.create_job(
         user=current_user,
@@ -90,9 +92,9 @@ async def create_job(
 async def delete_job(
     job_id: str,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    uow: UnitOfWork = Depends(get_uow),
 ):
-    service = JobService(db)
+    service = JobService(uow)
     logger.info(f"User {current_user.user_id} deleting job '{job_id}'")
     await service.delete_job(job_id=job_id)
     return JobStatusResponse(
@@ -103,9 +105,9 @@ async def delete_job(
 
 
 @router.get("/jobs/{job_id}", response_model=JobResponse)
-async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
+async def get_job(job_id: str, uow: UnitOfWork = Depends(get_uow)):
     """Get job details."""
-    service = JobService(db)
+    service = JobService(uow)
     job = await service.get_job(job_id=job_id)
     return JobResponse(
         id=job.id,
@@ -117,9 +119,9 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/jobs/{job_id}/details", response_model=JobDetailsResponse)
-async def get_job_details(job_id: str, db: AsyncSession = Depends(get_db)):
+async def get_job_details(job_id: str, uow: UnitOfWork = Depends(get_uow)):
     """Get full job details including photos and clusters."""
-    service = JobService(db)
+    service = JobService(uow)
     job = await service.get_job_details(job_id=job_id)
     return job
 
@@ -132,9 +134,9 @@ async def get_job_details(job_id: str, db: AsyncSession = Depends(get_db)):
 async def upload_photos(
     job_id: str,
     files: List[UploadFile] = File(...),
-    db: AsyncSession = Depends(get_db),
+    uow: UnitOfWork = Depends(get_uow),
 ):
-    service = JobService(db)
+    service = JobService(uow)
     photos = await service.upload_photos(job_id=job_id, files=files)
     return PhotoUploadResponse(job_id=job_id, file_count=len(photos))
 
@@ -148,9 +150,9 @@ async def generate_upload_urls(
     job_id: str,
     files: List[PhotoUploadRequest],
     origin: str | None = Header(None),
-    db: AsyncSession = Depends(get_db),
+    uow: UnitOfWork = Depends(get_uow),
 ):
-    service = JobService(db)
+    service = JobService(uow)
     return await service.generate_upload_urls(job_id=job_id, files=files, origin=origin)
 
 
@@ -163,9 +165,9 @@ async def generate_upload_urls(
 async def complete_upload(
     job_id: str,
     uploaded_files: List[dict],  # {filename: str, storage_path: str}
-    db: AsyncSession = Depends(get_db),
+    uow: UnitOfWork = Depends(get_uow),
 ):
-    service = JobService(db)
+    service = JobService(uow)
     
     # Mark as UPLOADING
     trigger_ts = await service.set_job_uploading(job_id)
@@ -189,9 +191,9 @@ async def complete_upload(
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def start_cluster(
-    job_id: str, payload: JobClusterRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)
+    job_id: str, payload: JobClusterRequest, background_tasks: BackgroundTasks, uow: UnitOfWork = Depends(get_uow)
 ):
-    service = JobService(db)
+    service = JobService(uow)
     job, data = await service.start_cluster(
         job_id=job_id,
         background_tasks=background_tasks,
@@ -208,9 +210,9 @@ async def start_cluster(
 
 @router.post("/jobs/{job_id}/export", response_model=ExportStatusResponse, status_code=status.HTTP_202_ACCEPTED)
 async def start_export(
-    job_id: str, payload: JobExportRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)
+    job_id: str, payload: JobExportRequest, background_tasks: BackgroundTasks, uow: UnitOfWork = Depends(get_uow)
 ):
-    service = JobService(db)
+    service = JobService(uow)
     export_job = await service.start_export(
         job_id=job_id,
         background_tasks=background_tasks,
@@ -222,8 +224,8 @@ async def start_export(
 
 
 @router.get("/jobs/{job_id}/export/status", response_model=ExportStatusResponse)
-async def get_export_status(job_id: str, db: AsyncSession = Depends(get_db)):
-    service = JobService(db)
+async def get_export_status(job_id: str, uow: UnitOfWork = Depends(get_uow)):
+    service = JobService(uow)
     status, pdf_url, err = await service.get_export_job(job_id=job_id)
     return ExportStatusResponse(
         status=status,
@@ -233,8 +235,8 @@ async def get_export_status(job_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/jobs/{job_id}/export/download")
-async def download_export_pdf(job_id: str, db: AsyncSession = Depends(get_db)):
-    service = JobService(db)
+async def download_export_pdf(job_id: str, uow: UnitOfWork = Depends(get_uow)):
+    service = JobService(uow)
     pdf_path, name = await service.download_export_pdf(job_id=job_id)
 
     return FileResponse(

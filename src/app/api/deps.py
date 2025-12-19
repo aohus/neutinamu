@@ -1,19 +1,9 @@
-import logging
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Generator
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Depends
 
-from fastapi import Request
+from app.db.database import get_db
+from app.common.uow import UnitOfWork
 
-logger = logging.getLogger(__name__)
-
-
-def get_thread_executor(request: Request) -> Generator[ThreadPoolExecutor, None, None]:
-    logger.debug("Yielding thread executor from app state.")
-    yield request.app.state.thread_executor
-
-
-def get_process_executor(
-    request: Request,
-) -> Generator[ProcessPoolExecutor, None, None]:
-    logger.debug("Yielding process executor from app state.")
-    yield request.app.state.process_executor
+async def get_uow(db: AsyncSession = Depends(get_db)) -> UnitOfWork:
+    return UnitOfWork(db)

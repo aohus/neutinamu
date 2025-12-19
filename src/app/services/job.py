@@ -10,8 +10,8 @@ from typing import Optional
 import piexif
 from fastapi import BackgroundTasks, File, HTTPException, UploadFile
 from PIL import Image, ImageFile
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.uow import UnitOfWork
 from app.core.config import settings
 from app.domain.cluster_background import run_pipeline_task
 from app.domain.cluster_client import run_deep_cluster_for_job
@@ -21,7 +21,6 @@ from app.domain.storage.factory import get_storage_client
 from app.models.job import ExportJob, ExportStatus, Job, JobStatus
 from app.models.photo import Photo
 from app.models.user import User
-from app.repository.job import JobRepository
 from app.schemas.photo import (
     BatchPresignedUrlResponse,
     PhotoUploadRequest,
@@ -63,12 +62,12 @@ def generate_thumbnail(image_data: bytes, is_full_image: bool = False) -> bytes 
 
 
 class JobService:
-    def __init__(self, db: AsyncSession):
-        self.repo = JobRepository(db)
+    def __init__(self, uow: UnitOfWork):
+        self.uow = uow
 
     async def get_jobs(self, user: User):
         logger.info(f"Fetching jobs for user: {user.user_id}")
-        jobs = await self.repo.get_all_by_user_id(user.user_id)
+        jobs = await self.uow.jobs.get_all_by_user_id(user.user_id)
         logger.info(f"Found {len(jobs)} jobs for user: {user.user_id}")
         return jobs
 
@@ -81,7 +80,7 @@ class JobService:
             company_name = user.company_name
 
         job = Job(user_id=user.user_id, title=title, construction_type=construction_type, company_name=company_name)
-        job = await self.repo.create_job(job)
+        job = await self.uow.jobs.create_job(job)
         logger.info(f"Job created successfully with ID: {job.id}")
         return job
 
@@ -89,10 +88,10 @@ class JobService:
         logger.info(f"Deleting job: '{job_id}'")
         storage = get_storage_client()
 
-        job = await self.repo.get_by_id(job_id)
+        job = await self.uow.jobs.get_by_id(job_id)
         if job is not None:
             user_id = job.user_id
-            await self.repo.delete_job(job)
+            await self.uow.jobs.delete_job(job)
             
             job_object_path = f"{user_id}/{job_id}/"
             await storage.delete_directory(job_object_path)
@@ -102,7 +101,7 @@ class JobService:
 
     async def get_job(self, job_id: str):
         logger.debug(f"Fetching job with ID: {job_id}")
-        job = await self.repo.get_by_id_with_unfinished_export(job_id)
+        job = await self.uow.jobs.get_by_id_with_unfinished_export(job_id)
         if not job:
             logger.warning(f"Job with ID {job_id} not found.")
             raise HTTPException(status_code=404, detail="Job not found")
@@ -112,7 +111,7 @@ class JobService:
 
     async def get_job_details(self, job_id: str) -> Job:
         """Get full job details including photos and clusters."""
-        job = await self.repo.get_job_details(job_id)
+        job = await self.uow.jobs.get_job_details(job_id)
 
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
@@ -130,7 +129,7 @@ class JobService:
         Generate pre-signed URLs for direct upload.
         If storage is local, returns None for URLs, indicating proxy upload should be used.
         """
-        job = await self.repo.get_by_id(job_id)
+        job = await self.uow.jobs.get_by_id(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
@@ -152,7 +151,7 @@ class JobService:
         self, job_id: str, files: list[PhotoUploadRequest], origin: str = None
     ) -> BatchPresignedUrlResponse:
 
-        job = await self.repo.get_by_id(job_id)
+        job = await self.uow.jobs.get_by_id(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
@@ -182,13 +181,13 @@ class JobService:
             return await self.generate_presigned_urls(job_id, files)
 
     async def set_job_uploading(self, job_id: str) -> datetime:
-        job = await self.repo.get_by_id(job_id)
+        job = await self.uow.jobs.get_by_id(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
         job.status = JobStatus.UPLOADING
         job.updated_at = datetime.now().astimezone()
-        await self.repo.save(job)
+        await self.uow.jobs.save(job)
         return job.updated_at
 
     async def process_uploaded_files(
@@ -198,7 +197,7 @@ class JobService:
         Register files that have been uploaded directly to storage.
         Optimized for 4GB RAM environment using Semaphores and Temporary Files.
         """
-        job = await self.repo.get_by_id(job_id)
+        job = await self.uow.jobs.get_by_id(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
@@ -298,10 +297,10 @@ class JobService:
             photos = [p for p in photos if p is not None]
 
         if photos:
-            await self.repo.add_all(photos)
+            await self.uow.jobs.add_all(photos)
 
         if trigger_timestamp:
-            await self.repo.update_status_by_id(job_id, JobStatus.CREATED, trigger_timestamp)
+            await self.uow.jobs.update_status_by_id(job_id, JobStatus.CREATED, trigger_timestamp)
 
         logger.info(f"Registered {len(photos)} uploaded photos for job {job_id}")
         return photos
@@ -313,7 +312,7 @@ class JobService:
     ):
         logger.info(f"Uploading {len(files)} files for job ID: {job_id}")
         # Check if job exists
-        job = await self.repo.get_by_id(job_id)
+        job = await self.uow.jobs.get_by_id(job_id)
         if not job:
             logger.error(f"Upload failed: Job with ID {job_id} not found.")
             raise HTTPException(status_code=404, detail="Job not found")
@@ -355,7 +354,7 @@ class JobService:
 
         photos = await asyncio.gather(*[process_file(file) for file in files])
 
-        await self.repo.add_all(photos)
+        await self.uow.jobs.add_all(photos)
 
         logger.info(f"Successfully uploaded and saved {len(photos)} photos for job {job_id}.")
         return photos
@@ -370,7 +369,7 @@ class JobService:
     ):
         """Trigger the clustering pipeline."""
         logger.info(f"Received request to start clustering for job {job_id}")
-        job = await self.repo.get_by_id(job_id)
+        job = await self.uow.jobs.get_by_id(job_id)
         if not job:
             logger.error(f"Clustering trigger failed: Job with ID {job_id} not found.")
             raise HTTPException(status_code=404, detail="Job not found")
@@ -379,7 +378,7 @@ class JobService:
             raise HTTPException(status_code=404, detail="Job is now PROCESSING")
 
         job.status = JobStatus.PENDING
-        await self.repo.save(job)
+        await self.uow.jobs.save(job)
         logger.info(f"Job {job_id} status updated to PENDING.")
 
         storage = get_storage_client()
@@ -397,12 +396,12 @@ class JobService:
         max_dist_m: float = 10.0,
         max_alt_diff_m: float = 20.0,
     ):
-        job = await self.repo.get_by_id(job_id)
+        job = await self.uow.jobs.get_by_id(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
         job.status = JobStatus.PENDING
-        await self.repo.save(job)
+        await self.uow.jobs.save(job)
 
         logger.info(f"Request deep_cluster logic start ")
         data = await run_deep_cluster_for_job(
@@ -418,11 +417,11 @@ class JobService:
         cover_company_name: Optional[str] = None,
         labels: Optional[dict] = {},
     ):
-        job = await self.repo.get_by_id_with_user(job_id)
+        job = await self.uow.jobs.get_by_id_with_user(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        export_job = await self.repo.get_latest_export_job(job_id)
+        export_job = await self.uow.jobs.get_latest_export_job(job_id)
 
         if export_job and export_job.status in {
             ExportStatus.PENDING,
@@ -438,27 +437,25 @@ class JobService:
             labels=labels,
         )
 
-        export_job = await self.repo.create_export_job(export_job)
+        export_job = await self.uow.jobs.create_export_job(export_job)
         background_tasks.add_task(generate_pdf_for_session, export_job.id)
         return export_job
 
     async def get_export_job(self, job_id):
-        export_job = await self.repo.get_latest_export_job(job_id)
+        export_job = await self.uow.jobs.get_latest_export_job(job_id)
         if not export_job:
             raise HTTPException(status_code=404, detail="Export job not found")
         return export_job.status, export_job.pdf_path, export_job.error_message
 
     async def download_export_pdf(self, job_id):
         logger.debug(f"Fetching job with ID: {job_id}")
-        # Note: Original code fetched Job joined with ExportJob.
-        # Here we use get_latest_export_job to find the export directly.
         
-        job = await self.repo.get_by_id(job_id)
+        job = await self.uow.jobs.get_by_id(job_id)
         if not job:
              logger.warning(f"Job with ID {job_id} not found.")
              raise HTTPException(status_code=404, detail="Job not found")
         
-        export_job = await self.repo.get_latest_export_job(job_id)
+        export_job = await self.uow.jobs.get_latest_export_job(job_id)
         if not export_job or export_job.status != ExportStatus.EXPORTED or not export_job.pdf_path:
             raise HTTPException(status_code=404, detail="No finished export for this session")
 

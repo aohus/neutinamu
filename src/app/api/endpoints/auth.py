@@ -1,5 +1,7 @@
 import logging
 
+from app.api.deps import get_uow
+from app.common.uow import UnitOfWork
 from app.core.security import decode_access_token
 from app.db.database import get_db
 from app.models.user import User
@@ -49,8 +51,8 @@ async def get_current_user(
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
-    service = AuthService(db)
+async def register(user_data: UserCreate, uow: UnitOfWork = Depends(get_uow)):
+    service = AuthService(uow)
     new_user = await service.register(user_data)
     return new_user
 
@@ -58,9 +60,9 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
 @router.post("/login", response_model=Token)
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: AsyncSession = Depends(get_db)
+    uow: UnitOfWork = Depends(get_uow)
 ):
-    service = AuthService(db)
+    service = AuthService(uow)
     access_token = await service.login(form_data)
     return {"access_token": access_token, "token_type": "bearer"}
 
