@@ -13,7 +13,7 @@ from app.api.api import api_router
 from app.core.config import settings
 from app.core.logger import setup_logging
 
-# from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_fastapi_instrumentator import Instrumentator
 
 
 # Ensure project root is on PYTHONPATH
@@ -62,7 +62,7 @@ app.add_middleware(
 )
 
 # Instrument Prometheus
-# Instrumentator().instrument(app).expose(app)
+Instrumentator().instrument(app).expose(app)
 
 app.include_router(api_router, prefix="/api")
 
