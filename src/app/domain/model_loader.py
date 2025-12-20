@@ -39,7 +39,6 @@ async def initialize_all_models():
     Explicitly initializes all model extractors. Call this during application startup.
     """
     logger.info("Pre-initializing all CosPlace model extractors...")
-    # Trigger initialization of both extractors
     get_cos_place_extractor()
-    get_cos_place_extractor_legacy()
-    logger.info("All CosPlace model extractors pre-initialized.")
+    # get_cos_place_extractor_legacy()
+    logger.info("CosPlace model extractors pre-initialized.")

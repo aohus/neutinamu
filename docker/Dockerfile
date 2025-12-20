@@ -30,6 +30,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
     pip install -r requirements.txt
 
+# 4. Bake Model into Image (Optimize Startup)
+ENV TORCH_HOME=/app/torch_cache
+RUN python -c "import torch; torch.hub.load('gmberton/CosPlace', 'get_trained_model', backbone='ResNet50', fc_output_dim=512, trust_repo=True)"
+
 # ----------------------------------------------------
 # Production Stage
 # ----------------------------------------------------
@@ -46,6 +50,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy Python packages from builder
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy Baked Model Cache
+ENV TORCH_HOME=/app/torch_cache
+COPY --from=builder /app/torch_cache /app/torch_cache
 
 # Create non-root user first
 RUN useradd -m -u 1000 appuser

@@ -3,10 +3,8 @@ import logging
 import math
 import os
 import tempfile
-import time
-from collections import Counter
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 from pyproj import Geod
