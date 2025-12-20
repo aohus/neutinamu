@@ -62,9 +62,11 @@ import uuid
 
 @pytest.fixture
 def mock_user():
+    from datetime import datetime
     return User(
         user_id=uuid.uuid4(),
         company_name="Test Corp",
         username="testuser",
-        password_hash="hashed"
+        password_hash="hashed",
+        created_at=datetime.now()
     )

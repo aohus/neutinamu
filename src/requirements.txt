@@ -30,7 +30,7 @@ onnxruntime>=1.15.1
 
 # Production & Monitoring
 gunicorn>=21.2.0
-# prometheus-fastapi-instrumentator>=6.1.0
+prometheus-fastapi-instrumentator>=7.1.0
 
 # Dev/Test
 pytest>=7.4.3
