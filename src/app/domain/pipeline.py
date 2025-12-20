@@ -7,8 +7,8 @@ from app.core.config import JobConfig
 from app.domain.clusterers.base import Clusterer
 from app.domain.clusterers.gps import GPSCluster
 from app.domain.clusterers.hybrid import HybridCluster
-
-# from app.domain.clusterers.hybrid_legacy import HybridClusterLegacy
+from app.domain.clusterers.hybrid_legacy import HybridClusterLegacy # Import model loaders
+from app.domain.model_loader import get_cos_place_extractor, get_cos_place_extractor_legacy
 from app.domain.metadata_extractor import MetadataExtractor
 
 # if TYPE_CHECKING:
@@ -68,7 +68,10 @@ class PhotoClusteringPipeline:
     def _create_clusterers(self, config: "JobConfig") -> List[Clusterer]:
         """Factory method to create clustering clusterers based on config."""
         logger.debug("Creating clusterers...")
-        return [HybridCluster()]
+        
+        # Retrieve the singleton extractor instance
+        extractor = get_cos_place_extractor()
+        return [HybridCluster(extractor=extractor)]
 
     async def run(self):
         logger.info(f"Pipeline run started for job {self.config.job_id}.")

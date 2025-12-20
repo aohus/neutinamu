@@ -14,7 +14,7 @@ from scipy.spatial.distance import pdist, squareform
 from sklearn.cluster import KMeans
 
 from app.domain.clusterers.base import Clusterer
-from app.domain.storage.gcs import GCSStorageService
+from app.domain.storage.factory import get_storage_client
 from app.models.photometa import PhotoMeta
 
 from .hybrid import PerformanceMonitor
@@ -130,7 +130,8 @@ class CosPlaceExtractorLegacy:
 
 
 class HybridClusterLegacy(Clusterer):
-    def __init__(self):
+    def __init__(self, extractor: Optional[CosPlaceExtractorLegacy] = None):
+
         self.geod = Geod(ellps="WGS84")
         self.params = PARAMS
 
@@ -142,8 +143,8 @@ class HybridClusterLegacy(Clusterer):
         self.min_samples = self.params.get("min_samples", 1)
         self.max_cluster_size = self.params.get("max_cluster_size", 4)
 
-        self.extractor = CosPlaceExtractorLegacy()
-        self.storage = GCSStorageService()
+        self.extractor = extractor or CosPlaceExtractorLegacy()
+        self.storage = get_storage_client()
         self.performance_monitor = PerformanceMonitor()
 
     async def cluster(self, photos: List[PhotoMeta]) -> List[List[PhotoMeta]]:

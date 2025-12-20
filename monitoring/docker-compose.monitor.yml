@@ -1,10 +1,4 @@
-version: '3.8'
-
 services:
-  # ---------------------------------------------------------------------------
-  # Monitoring Stack
-  # ---------------------------------------------------------------------------
-
   # Prometheus: Metrics Collection
   prometheus:
     image: prom/prometheus:latest
@@ -50,7 +44,7 @@ services:
     container_name: monitor-postgres-exporter
     restart: always
     environment:
-      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@host.docker.internal:5432/${POSTGRES_DB}?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@host.docker.internal:5432/${POSTGRES_DB:-postgres}?sslmode=disable"
     ports:
       - "9187:9187"
     networks:

@@ -20,6 +20,7 @@ from app.models.cluster import Cluster
 from app.models.job import ExportJob, Job
 from app.models.photo import Photo
 from app.schemas.enum import ExportStatus
+from app.utils.performance import PerformanceMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -317,6 +318,9 @@ async def generate_pdf_for_session(export_job_id: str):
     """
     ExportJob 처리 메인 함수
     """
+    pm = PerformanceMonitor()
+    pm.start()
+
     async with AsyncSessionLocal() as session:
         # 1. Fetch Job Data
         stmt = (
@@ -443,6 +447,9 @@ async def generate_pdf_for_session(export_job_id: str):
                 await session.commit()
 
                 logger.info(f"PDF Generated successfully: {final_url}")
+                
+                pm.stop()
+                pm.report("GeneratePDF")
 
         except Exception as e:
             logger.exception("PDF Generation Failed")

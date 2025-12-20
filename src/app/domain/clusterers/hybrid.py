@@ -16,8 +16,9 @@ from sklearn.cluster import KMeans
 
 # 도메인 의존성 (환경에 맞게 유지)
 from app.domain.clusterers.base import Clusterer
-from app.domain.storage.gcs import GCSStorageService
+from app.domain.storage.factory import get_storage_client
 from app.models.photometa import PhotoMeta
+from app.utils.performance import PerformanceMonitor
 
 # --- [Optional Imports for HDBSCAN] ---
 try:
@@ -65,59 +66,6 @@ PARAMS = {
     "w_merge": 0.10088178479325592,
     "w_split": 3.669884372778316,
 }
-
-
-class PerformanceMonitor:
-    """Helper to measure Time, CPU, and Memory usage."""
-
-    def __init__(self):
-        self.start_time = 0.0
-        self.end_time = 0.0
-        self.start_cpu = 0.0
-        self.end_cpu = 0.0
-        self.start_mem = 0
-        self.end_mem = 0
-        self.process = psutil.Process() if HAS_PSUTIL else None
-
-    def start(self):
-        gc.collect()  # Clean up before starting measurement
-        self.start_time = time.time()
-        if self.process:
-            self.process.cpu_percent(interval=None)  # Set baseline for next call
-            self.start_mem = self.process.memory_info().rss
-
-    def stop(self):
-        self.end_time = time.time()
-        if self.process:
-            self.end_cpu = self.process.cpu_percent(interval=None)  # Get average CPU usage since last call
-            self.end_mem = self.process.memory_info().rss
-
-    @property
-    def duration(self):
-        return self.end_time - self.start_time
-
-    def report(self, label: str, count: Optional[int] = None) -> str:
-        count_str = f" (N={count})" if count is not None else ""
-        msg = f"[{label}]{count_str} Time: {self.duration:.4f}s"
-        if self.process:
-            mem_diff_mb = (self.end_mem - self.start_mem) / (1024 * 1024)
-            end_mem_mb = self.end_mem / (1024 * 1024)
-            msg += f" | CPU: {self.end_cpu:.1f}% | Mem: {end_mem_mb:.1f}MB (Delta: {mem_diff_mb:+.2f}MB)"
-
-        # Write to log file
-        try:
-            log_dir = Path("logs/performance")
-            log_dir.mkdir(parents=True, exist_ok=True)
-            log_file = log_dir / "performance_log.txt"
-
-            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            with open(log_file, "a", encoding="utf-8") as f:
-                f.write(f"[{timestamp}] {msg}\n")
-        except Exception as e:
-            # Just log error but don't fail main flow
-            logging.getLogger(__name__).error(f"Failed to write performance log: {e}")
-
-        return msg
 
 
 class CosPlaceExtractor:
@@ -260,7 +208,7 @@ class CosPlaceExtractor:
 
 
 class HybridCluster(Clusterer):
-    def __init__(self):
+    def __init__(self, extractor: Optional[CosPlaceExtractor] = None):
         self.geod = Geod(ellps="WGS84")
         self.params = PARAMS
 
@@ -272,9 +220,9 @@ class HybridCluster(Clusterer):
         self.min_samples = self.params.get("min_samples", 1)
         self.max_cluster_size = self.params.get("max_cluster_size", 4)
 
-        # Initialize Optimized Extractor
-        self.extractor = CosPlaceExtractor(onnx_path="img_models/cosplace_resnet50_int8.onnx")
-        self.storage = GCSStorageService()
+        # Initialize Optimized Extractor (use injected or create new)
+        self.extractor = extractor if extractor is not None else CosPlaceExtractor(onnx_path="img_models/cosplace_resnet50_int8.onnx")
+        self.storage = get_storage_client()
         self.performance_monitor = PerformanceMonitor()
 
         logger.info(f"HybridCluster Ready. Mode: {'ONNX' if self.extractor.use_onnx else 'Torch/None'}")
@@ -402,7 +350,7 @@ class HybridCluster(Clusterer):
                 logger.warning(f"Download error {url}: {e}")
 
     def _run_clustering_logic(
-        self, photos: List[PhotoMeta], features: List[Optional[np.ndarray]], skip_gps: bool = False
+        self, photos: List[PhotoMeta], features: List[Optional[np.ndarray]], skip_gps: bool = True
     ) -> np.ndarray:
 
         n_samples = len(photos)
