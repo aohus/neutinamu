@@ -14,8 +14,14 @@ logger = logging.getLogger(__name__)
 
 
 class GCSStorageService(StorageService):
+    _client: Optional[storage.Client] = None
+
     def __init__(self):
-        self.client = storage.Client()
+        if GCSStorageService._client is None:
+            logger.info("Initializing new GCS Client...")
+            GCSStorageService._client = storage.Client()
+        
+        self.client = GCSStorageService._client
         self.bucket_name = configs.GCS_BUCKET_NAME
         self.bucket = self.client.bucket(self.bucket_name)
 

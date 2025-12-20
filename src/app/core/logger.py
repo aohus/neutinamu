@@ -78,8 +78,24 @@ DEV_LOGGING_CONFIG = {
             "handlers": ["console"],
             "propagate": False,
         },
-        "alembic": {
-            "level": "ERROR",
+        # External Libraries Noise Reduction
+        "urllib3": {
+            "level": "WARNING",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+        "PIL": {
+            "level": "WARNING",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+        "google.auth": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+        "google.cloud": {
+            "level": "INFO",
             "handlers": ["console"],
             "propagate": False,
         },
@@ -138,6 +154,27 @@ PROD_LOGGING_CONFIG = {
         },
         "alembic": {
             "level": "WARNING",
+            "handlers": ["console_json"],
+            "propagate": False,
+        },
+        # External Libraries Noise Reduction
+        "urllib3": {
+            "level": "WARNING",
+            "handlers": ["console_json"],
+            "propagate": False,
+        },
+        "PIL": {
+            "level": "WARNING",
+            "handlers": ["console_json"],
+            "propagate": False,
+        },
+        "google.auth": {
+            "level": "INFO",
+            "handlers": ["console_json"],
+            "propagate": False,
+        },
+        "google.cloud": {
+            "level": "INFO",
             "handlers": ["console_json"],
             "propagate": False,
         },
