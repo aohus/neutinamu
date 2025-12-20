@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from app.common.uow import UnitOfWork
 from app.models.cluster import Cluster
+from app.models.photo import Photo
 from app.schemas.photo import PhotoMove, PhotoUpdate
 
 logger = logging.getLogger(__name__)
