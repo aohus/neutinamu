@@ -6,7 +6,7 @@ from typing import BinaryIO, Optional
 
 from google.cloud import storage  # 동기 라이브러리
 
-from app.core.config import settings
+from app.core.config import configs
 
 from .base import StorageService
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class GCSStorageService(StorageService):
     def __init__(self):
         self.client = storage.Client()
-        self.bucket_name = settings.GCS_BUCKET_NAME
+        self.bucket_name = configs.GCS_BUCKET_NAME
         self.bucket = self.client.bucket(self.bucket_name)
 
         logger.info(f"GCSStorageService initialized for bucket '{self.bucket_name}'")

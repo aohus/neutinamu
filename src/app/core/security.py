@@ -2,13 +2,14 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-from app.core.config import settings
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
+from app.core.config import configs
+
 logger = logging.getLogger(__name__)
 
-pwd_context = CryptContext(schemes=['bcrypt_sha256'], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -29,10 +30,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     if expires_delta:
         expire = datetime.now() + expires_delta
     else:
-        expire = datetime.now() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
+        expire = datetime.now() + timedelta(minutes=configs.ACCESS_TOKEN_EXPIRE_MINUTES)
+
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, configs.SECRET_KEY, algorithm=configs.ALGORITHM)
     logger.debug(f"Created new access token for subject: {data.get('sub')}")
     return encoded_jwt
 
@@ -41,7 +42,7 @@ def decode_access_token(token: str) -> Optional[dict]:
     """Decode a JWT access token."""
     try:
         logger.debug("Decoding access token.")
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, configs.SECRET_KEY, algorithms=[configs.ALGORITHM])
         return payload
     except JWTError as e:
         logger.error(f"Error decoding access token: {e}", exc_info=True)

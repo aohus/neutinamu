@@ -34,7 +34,6 @@ docs/
 # Ignore data/assets that are usually mounted or created at runtime
 # Adjust if your application needs these at build time
 assets/
-logs/
 
 # Test files and configurations (should not be in production image)
 # If your tests are within src/, refine this.

@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 # --- [Project Dependencies] ---
-from app.core.config import settings
+from app.core.config import configs
 from app.db.database import AsyncSessionLocal
 from app.domain.storage.factory import get_storage_client
 from app.models.cluster import Cluster
@@ -35,7 +35,7 @@ class PDFLayoutConfig:
 
     # 템플릿 GCS 경로
     BASE_TEMPLATE_GCS_PATH: str = (
-        settings.PDF_BASE_TEMPLATE_PATH if settings.PDF_BASE_TEMPLATE_PATH else "templates/base_template.pdf"
+        configs.PDF_BASE_TEMPLATE_PATH if configs.PDF_BASE_TEMPLATE_PATH else "templates/base_template.pdf"
     )
     COVER_TEMPLATE_GCS_PATH: str = "templates/cover_template.pdf"
 
@@ -393,11 +393,11 @@ async def generate_pdf_for_session(export_job_id: str):
                         local_path = tmpdir / f"p_{photo.id}_{Path(photo.url).name if photo.url else 'img'}"
 
                         success = False
-                        if settings.STORAGE_TYPE in ["gcs", "s3"] and photo.url:
+                        if configs.STORAGE_TYPE in ["gcs", "s3"] and photo.url:
                             success = await _download_file_safe(storage_client, photo.url, local_path)
                         else:
                             # Local storage fallback
-                            src_path = Path(settings.MEDIA_ROOT) / photo.storage_path
+                            src_path = Path(configs.MEDIA_ROOT) / photo.storage_path
                             if src_path.exists():
                                 import shutil
 
@@ -455,7 +455,7 @@ async def generate_pdf_for_session(export_job_id: str):
 async def _download_file_safe(client, remote_path, local_path):
     """Exception safe file download helper"""
     try:
-        if settings.STORAGE_TYPE in ["gcs", "s3"]:
+        if configs.STORAGE_TYPE in ["gcs", "s3"]:
             await client.download_file(remote_path, local_path)
         else:
             # For local dev without GCS
@@ -474,16 +474,16 @@ async def _download_file_safe(client, remote_path, local_path):
 
 
 async def _save_result_file(client, local_path, user_id, job_id, file_name):
-    if settings.STORAGE_TYPE in ["gcs", "s3"]:
+    if configs.STORAGE_TYPE in ["gcs", "s3"]:
         storage_path = f"{user_id}/{job_id}/exports/{file_name}"
         async with aiofiles.open(local_path, "rb") as f:
             await client.save_file(f, storage_path, content_type="application/pdf")
         return client.get_url(storage_path)
     else:
-        target_dir = Path(settings.MEDIA_ROOT) / "exports"
+        target_dir = Path(configs.MEDIA_ROOT) / "exports"
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / file_name
         import shutil
 
         shutil.copy(local_path, target_path)
-        return f"{settings.MEDIA_URL}/exports/{file_name}"
+        return f"{configs.MEDIA_URL}/exports/{file_name}"

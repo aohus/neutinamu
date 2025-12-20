@@ -1,7 +1,7 @@
 import logging
 from functools import lru_cache
 
-from app.core.config import settings
+from app.core.config import configs
 
 from .base import StorageService
 from .gcs import GCSStorageService
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class StorageFactory:
     @staticmethod
-    def get_storage_service(service_type: str = "local") -> StorageService:
+    def get_storage_service(service_type: str = "gcs") -> StorageService:
         logger.info(f"Creating storage service of type: {service_type}")
         if service_type == "local":
             return LocalStorageService()
@@ -25,9 +25,10 @@ class StorageFactory:
             logger.error(f"Unknown storage service type requested: {service_type}")
             raise ValueError(f"Unknown storage service type: {service_type}")
 
+
 @lru_cache()
 def get_storage_client() -> StorageService:
-    # settings.STORAGE_TYPE 환경 변수 사용
-    storage_type = getattr(settings, "STORAGE_TYPE", "local")
+    # config.STORAGE_TYPE 환경 변수 사용
+    storage_type = getattr(configs, "STORAGE_TYPE", "gcs")
     logger.debug(f"Getting storage client (cached). Type: {storage_type}")
     return StorageFactory.get_storage_service(storage_type)

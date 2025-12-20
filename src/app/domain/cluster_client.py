@@ -5,15 +5,16 @@ import re
 from typing import Any, List
 
 import httpx
-from app.core.config import settings
-from app.db.database import AsyncSessionLocal
-from app.models.job import ClusterJob, Job, JobStatus
-from app.models.photo import Photo
-from app.domain.storage.factory import get_storage_client
-from app.domain.storage.local import LocalStorageService
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
+
+from app.core.config import configs
+from app.db.database import AsyncSessionLocal
+from app.domain.storage.factory import get_storage_client
+from app.domain.storage.local import LocalStorageService
+from app.models.job import ClusterJob, Job, JobStatus
+from app.models.photo import Photo
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ async def run_deep_cluster_for_job(
     min_samples: int = 3,
     max_dist_m: float = 10.0,
     max_alt_diff_m: float = 20.0,
-    similarity_threshold: float = 0.8
+    similarity_threshold: float = 0.8,
 ):
     """
     1) job_id 에 속한 Photo들의 storage_path 조회
@@ -58,7 +59,7 @@ async def run_deep_cluster_for_job(
             cluster_job.finished_at = func.now()
             await session.commit()
             return
-        
+
         # Resolve paths based on storage type
         storage = get_storage_client()
         photo_paths = []
@@ -70,18 +71,18 @@ async def run_deep_cluster_for_job(
             else:
                 # Remote (GCS/S3): Public or Signed URL
                 photo_paths.append(storage.get_url(p.storage_path))
-        
+
         logger.info(f"get {len(photo_paths)} photos")
-        
+
         try:
             # 2. 클러스터 서버 호출
             return await call_cluster_service(
-                photo_paths=photo_paths, 
+                photo_paths=photo_paths,
                 request_id=cluster_job.id,
                 min_samples=min_samples,
                 max_dist_m=max_dist_m,
                 max_alt_diff_m=max_alt_diff_m,
-                similarity_threshold=similarity_threshold
+                similarity_threshold=similarity_threshold,
             )
         except Exception as e:
             logger.exception(f"[DeepClusterRunner] {job} failed: {e}")
@@ -116,7 +117,7 @@ async def call_cluster_service(
     결과는 webhook으로 수신.
     """
     # Use the configured callback base URL
-    webhook_url = f"{settings.CALLBACK_BASE_URL}/cluster/callback"
+    webhook_url = f"{configs.CALLBACK_BASE_URL}/cluster/callback"
 
     payload = {
         "photo_paths": photo_paths,
@@ -130,7 +131,7 @@ async def call_cluster_service(
         "remove_people": remove_people,
     }
     async with httpx.AsyncClient(
-        base_url=str(settings.CLUSTER_SERVICE_URL),
+        base_url=str(configs.CLUSTER_SERVICE_URL),
         timeout=10.0,
     ) as client:
         resp = await client.post("/api/cluster", json=payload)

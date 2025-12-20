@@ -3,7 +3,7 @@ import logging
 import logging.config
 import sys
 
-from app.core.config import settings
+from app.core.config import configs
 
 
 class JsonFormatter(logging.Formatter):
@@ -46,12 +46,12 @@ DEV_LOGGING_CONFIG = {
     "loggers": {
         # Root Logger: Catches everything not caught by specific loggers
         "root": {
-            "level": settings.LOG_LEVEL,
+            "level": configs.LOG_LEVEL,
             "handlers": ["console"],
         },
         # Application Logger
         "app": {
-            "level": settings.LOG_LEVEL,
+            "level": "INFO",
             "handlers": ["console"],
             "propagate": False,
         },
@@ -108,11 +108,11 @@ PROD_LOGGING_CONFIG = {
     },
     "loggers": {
         "root": {
-            "level": settings.LOG_LEVEL,
+            "level": configs.LOG_LEVEL,
             "handlers": ["console_json"],
         },
         "app": {
-            "level": settings.LOG_LEVEL,
+            "level": configs.LOG_LEVEL,
             "handlers": ["console_json"],
             "propagate": False,
         },
@@ -149,16 +149,16 @@ def setup_logging():
     """
     Set up logging configuration based on the environment.
     """
-    env = settings.ENVIRONMENT.lower()
+    env = configs.ENVIRONMENT.lower()
 
     if env == "production":
-        config = PROD_LOGGING_CONFIG
+        log_config = PROD_LOGGING_CONFIG
     else:
-        config = DEV_LOGGING_CONFIG
+        log_config = DEV_LOGGING_CONFIG
 
     # Apply configuration
-    logging.config.dictConfig(config)
+    logging.config.dictConfig(log_config)
 
     # Log the setup confirmation (using a logger defined in the config)
     logger = logging.getLogger("app")
-    logger.info(f"Logging setup complete for {env} environment with level {settings.LOG_LEVEL}")
+    logger.info(f"Logging setup complete for {env} environment with level {configs.LOG_LEVEL}")

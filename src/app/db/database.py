@@ -1,19 +1,16 @@
 import logging
 
-from app.core.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
+
+from app.core.config import configs
 
 logger = logging.getLogger(__name__)
 
 # Create async engine
 # Set echo to True only if log level is DEBUG for verbose SQL logging
-is_debug = settings.LOG_LEVEL.upper() == "DEBUG"
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=is_debug,
-    future=True
-)
+is_debug = configs.LOG_LEVEL.upper() == "DEBUG"
+engine = create_async_engine(configs.DATABASE_URL, echo=False, future=True)
 
 
 # Create async session factory

@@ -10,7 +10,7 @@ from fastapi import BackgroundTasks, File, HTTPException, UploadFile
 from PIL import ImageFile
 
 from app.common.uow import UnitOfWork
-from app.core.config import settings
+from app.core.config import configs
 from app.domain.cluster_background import run_pipeline_task
 from app.domain.cluster_client import run_deep_cluster_for_job
 from app.domain.generate_pdf import generate_pdf_for_session
@@ -109,7 +109,7 @@ class JobService:
         storage = get_storage_client()
         response_urls = []
 
-        strategy = "proxy" if settings.STORAGE_TYPE == "local" else "presigned"
+        strategy = "proxy" if configs.STORAGE_TYPE == "local" else "presigned"
 
         for file_req in files:
             target_path = f"{job.user_id}/{job.id}/photos/original/{file_req.filename}"

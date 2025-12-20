@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.api import api_router
-from app.core.config import config
+from app.core.config import configs
 from app.core.logger import setup_logging
 
 # Ensure project root is on PYTHONPATH
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 def init_cors(app: FastAPI) -> None:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=config.cors_origins,
+        allow_origins=configs.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
