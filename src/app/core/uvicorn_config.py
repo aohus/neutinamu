@@ -1,4 +1,5 @@
 import multiprocessing
+from app.core.config import configs
 
 uvicorn_settings = {
     "workers": multiprocessing.cpu_count(),
@@ -6,6 +7,8 @@ uvicorn_settings = {
     "timeout_keep_alive": 120,
     "loop": "uvloop",
     "http": "httptools",
+    "access_log": True,
+    "log_level": "info",
 }
 
 # SSL 설정 (옵션)
