@@ -5,7 +5,7 @@ from app.core.config import configs
 is_prod = configs.ENVIRONMENT == "production"
 
 uvicorn_settings = {
-    "workers": min(multiprocessing.cpu_count(), 2) if is_prod else 1,
+    "workers": min(multiprocessing.cpu_count(), 1) if is_prod else 1,
     "backlog": 4096,
     "timeout_keep_alive": 120,
 }
