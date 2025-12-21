@@ -54,6 +54,7 @@ jobs:
 
             # 4. 환경 변수 파일 (.env) 생성 (공유되므로 생성 필요)
             cat <<EOF > .env
+            GCP_VM_HOST=${{ secrets.GCP_VM_HOST }}
             POSTGRES_USER=${{ secrets.POSTGRES_USER }}
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
             POSTGRES_DB=${{ secrets.POSTGRES_DB }}
@@ -77,7 +78,7 @@ jobs:
             export DOCKER_BUILDKIT=1
             
             # celery_worker도 backend 코드를 사용하므로 함께 재배포
-            docker compose -f docker-compose.prod.yml up -d --build backend celery_worker
+            docker compose -f docker-compose.prod.yml up -d --build backend
 
             # 8. 불필요한 이미지 정리
             docker image prune -f
