@@ -42,9 +42,11 @@ FROM python:3.12.1-slim-bookworm
 WORKDIR /app
 # * libgomp1: PyMuPDF 등 병렬 처리에 사용되는 C 라이브러리의 런타임
 # * postgresql-client: psql 명령줄 도구가 필요할 경우
+# * curl: Healthcheck용
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     postgresql-client \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python packages from builder
@@ -65,7 +67,7 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Run the application
 CMD ["python", "-m", "app.main"]
