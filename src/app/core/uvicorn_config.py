@@ -1,15 +1,23 @@
 import multiprocessing
+
 from app.core.config import configs
 
+is_prod = configs.ENVIRONMENT == "production"
+
 uvicorn_settings = {
-    "workers": multiprocessing.cpu_count(),
+    "workers": min(multiprocessing.cpu_count(), 2) if is_prod else 1,
     "backlog": 4096,
     "timeout_keep_alive": 120,
-    "loop": "uvloop",
-    "http": "httptools",
-    "access_log": True,
-    "log_level": "info",
 }
+
+if is_prod:
+    uvicorn_settings.update({
+        "loop": "uvloop",
+        "http": "httptools",
+        "access_log": True,
+        "log_level": "info",
+    })
+
 
 # SSL 설정 (옵션)
 # ssl_certfile = None  # SSL 인증서 경로
