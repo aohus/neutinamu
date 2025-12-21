@@ -17,7 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-setup_logging()
+# setup_logging()  <-- Moved to main.py
 logger = logging.getLogger(__name__)
 
 
@@ -33,6 +33,19 @@ def init_cors(app: FastAPI) -> None:
 
 def init_routers(app: FastAPI) -> None:
     app.include_router(api_router, prefix="/api")
+    
+    # Add Health and Root endpoints directly
+    @app.get("/", tags=["Root"])
+    async def read_root():
+        return {
+            "message": "Welcome to the Photo Clustering API!",
+            "docs_url": "/docs",
+        }
+
+    @app.get("/health")
+    async def health_check():
+        """Health check endpoint."""
+        return {"status": "healthy"}
 
 
 def init_monitoring(app: FastAPI) -> None:
@@ -43,7 +56,6 @@ def init_monitoring(app: FastAPI) -> None:
     # setup_monitoring()
     # Setting OpenTelemetry exporter
     # setting_otlp(app, config.APP_NAME, config.OTEL_EXPORTER_OTLP_ENDPOINT)
-
 
 def init_log_filter() -> None:
     class EndpointFilter(logging.Filter):
@@ -85,20 +97,3 @@ def create_app() -> FastAPI:
     init_log_filter()
     init_cors(app=app)
     return app
-
-
-app = create_app()
-
-
-@app.get("/", tags=["Root"])
-async def read_root():
-    return {
-        "message": "Welcome to the Photo Clustering API!",
-        "docs_url": "/docs",
-    }
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy"}
