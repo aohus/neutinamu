@@ -6,14 +6,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from typing import Optional
+
 from fastapi import BackgroundTasks, File, HTTPException, UploadFile
 from PIL import ImageFile
 
 from app.common.uow import UnitOfWork
 from app.core.config import configs
-from app.domain.cluster_background import run_pipeline_task
 from app.domain.cluster_client import run_deep_cluster_for_job
-from app.domain.generate_pdf import generate_pdf_for_session
+from app.domain.generate_pdf import generate_pdf_for_session as original_generate_pdf_for_session
 from app.domain.metadata_extractor import MetadataExtractor
 from app.domain.storage.factory import get_storage_client
 from app.models.job import ExportJob, ExportStatus, Job, JobStatus
@@ -26,6 +27,7 @@ from app.schemas.photo import (
 )
 from app.utils.fileIO import AsyncBytesIO
 from app.utils.image import generate_thumbnail
+from app.celery_app import run_clustering_pipeline_task_celery, generate_pdf_for_session_celery
 
 logger = logging.getLogger(__name__)
 # 부분 다운로드된 파일(Truncated Image) 처리 허용
@@ -50,9 +52,10 @@ class JobService:
         if not company_name:
             company_name = user.company_name
 
-        job = Job(user_id=user.user_id, title=title, construction_type=construction_type, company_name=company_name)
-        job = await self.uow.jobs.create_job(job)
-        await self.uow.commit()
+        async with self.uow:
+            job = Job(user_id=user.user_id, title=title, construction_type=construction_type, company_name=company_name)
+            job = await self.uow.jobs.create_job(job)
+
         logger.info(f"Job created successfully with ID: {job.id}")
         return job
 
@@ -60,14 +63,14 @@ class JobService:
         logger.info(f"Deleting job: '{job_id}'")
         storage = get_storage_client()
 
-        job = await self.uow.jobs.get_by_id(job_id)
-        if job is not None:
-            user_id = job.user_id
-            await self.uow.jobs.delete_job(job)
-            await self.uow.commit()
+        async with self.uow:
+            job = await self.uow.jobs.get_by_id(job_id)
+            if job is not None:
+                user_id = job.user_id
+                await self.uow.jobs.delete_job(job)
 
-            job_object_path = f"{user_id}/{job_id}/"
-            await storage.delete_directory(job_object_path)
+                job_object_path = f"{user_id}/{job_id}/"
+                await storage.delete_directory(job_object_path)
 
         logger.info(f"Job deleted successfully with ID: {job_id}")
         return
@@ -154,14 +157,14 @@ class JobService:
             return await self.generate_presigned_urls(job_id, files)
 
     async def set_job_uploading(self, job_id: str) -> datetime:
-        job = await self.uow.jobs.get_by_id(job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
+        async with self.uow:
+            job = await self.uow.jobs.get_by_id(job_id)
+            if not job:
+                raise HTTPException(status_code=404, detail="Job not found")
 
-        job.status = JobStatus.UPLOADING
-        job.updated_at = datetime.now().astimezone()
-        await self.uow.jobs.save(job)
-        await self.uow.commit()
+            job.status = JobStatus.UPLOADING
+            job.updated_at = datetime.now().astimezone()
+            await self.uow.jobs.save(job)
         return job.updated_at
 
     async def process_uploaded_files(
@@ -187,13 +190,12 @@ class JobService:
             )
             photos = [p for p in photos if p is not None]
 
-        if photos:
-            await self.uow.jobs.add_all(photos)
+        async with self.uow:
+            if photos:
+                await self.uow.jobs.add_all(photos)
 
-        if trigger_timestamp:
-            await self.uow.jobs.update_status_by_id(job_id, JobStatus.CREATED, trigger_timestamp)
-
-        await self.uow.commit()
+            if trigger_timestamp:
+                await self.uow.jobs.update_status_by_id(job_id, JobStatus.CREATED, trigger_timestamp)
 
         logger.info(f"Registered {len(photos)} uploaded photos for job {job_id}")
         return photos
@@ -332,8 +334,8 @@ class JobService:
 
         photos = await asyncio.gather(*[process_file(file) for file in files])
 
-        await self.uow.jobs.add_all(photos)
-        await self.uow.commit()
+        async with self.uow:
+            await self.uow.jobs.add_all(photos)
 
         logger.info(f"Successfully uploaded and saved {len(photos)} photos for job {job_id}.")
         return photos
@@ -341,7 +343,6 @@ class JobService:
     async def start_cluster(
         self,
         job_id: str,
-        background_tasks: BackgroundTasks,
         min_samples: int = 3,
         max_dist_m: float = 10.0,
         max_alt_diff_m: float = 20.0,
@@ -356,16 +357,16 @@ class JobService:
         if job.status == JobStatus.PROCESSING:
             raise HTTPException(status_code=404, detail="Job is now PROCESSING")
 
-        job.status = JobStatus.PENDING
-        await self.uow.jobs.save(job)
-        await self.uow.commit()
+        async with self.uow:
+            job.status = JobStatus.PENDING
+            await self.uow.jobs.save(job)
+        
         logger.info(f"Job {job_id} status updated to PENDING.")
 
-        storage = get_storage_client()
-        background_tasks.add_task(run_pipeline_task, job_id, storage, min_samples, max_dist_m, max_alt_diff_m)
-        logger.info(f"Clustering task for job {job_id} added to background tasks.")
+        run_clustering_pipeline_task_celery.delay(job_id, min_samples, max_dist_m, max_alt_diff_m)
+        logger.info(f"Clustering task for job {job_id} enqueued to Celery.")
 
-        data = {"message": "Local clustering started"}
+        data = {"message": "Clustering started"}
         return job, data
 
     async def start_cluster_server(
@@ -380,9 +381,9 @@ class JobService:
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        job.status = JobStatus.PENDING
-        await self.uow.jobs.save(job)
-        await self.uow.commit()
+        async with self.uow:
+            job.status = JobStatus.PENDING
+            await self.uow.jobs.save(job)
 
         logger.info(f"Request deep_cluster logic start ")
         data = await run_deep_cluster_for_job(
@@ -393,7 +394,6 @@ class JobService:
     async def start_export(
         self,
         job_id: str,
-        background_tasks: BackgroundTasks,
         cover_title: Optional[str] = None,
         cover_company_name: Optional[str] = None,
         labels: Optional[dict] = {},
@@ -418,9 +418,10 @@ class JobService:
             labels=labels,
         )
 
-        export_job = await self.uow.jobs.create_export_job(export_job)
-        await self.uow.commit()
-        background_tasks.add_task(generate_pdf_for_session, export_job.id)
+        async with self.uow:
+            export_job = await self.uow.jobs.create_export_job(export_job)
+        
+        generate_pdf_for_session_celery.delay(export_job.id)
         return export_job
 
     async def get_export_job(self, job_id):

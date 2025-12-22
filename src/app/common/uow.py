@@ -17,6 +17,15 @@ class UnitOfWork:
         self.clusters = ClusterRepository(db)
         self.photos = PhotoRepository(db)
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        if exc_type:
+            await self.rollback()
+        else:
+            await self.commit()
+
     async def commit(self):
         await self.db.commit()
 

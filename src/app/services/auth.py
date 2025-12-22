@@ -30,9 +30,9 @@ class AuthService:
         hashed_password = get_password_hash(user_data.password)
         new_user = User(username=user_data.username, company_name=user_data.company_name, password_hash=hashed_password)
 
-        await self.uow.users.create(new_user)
-        await self.uow.commit()
-        await self.uow.refresh(new_user)
+        async with self.uow:
+            await self.uow.users.create(new_user)
+            await self.uow.refresh(new_user)
 
         logger.info(f"User '{new_user.username}' registered successfully with ID: {new_user.user_id}")
         return new_user
