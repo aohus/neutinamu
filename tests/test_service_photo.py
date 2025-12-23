@@ -15,7 +15,21 @@ def mock_uow():
     uow.photos = MagicMock()
     uow.clusters = MagicMock()
     uow.commit = AsyncMock()
+    uow.rollback = AsyncMock()
     uow.flush = AsyncMock()
+
+    # Make the mock_uow behave like an async context manager
+    uow.__aenter__ = AsyncMock(return_value=uow)
+    
+    # Custom side effect for __aexit__ to call commit or rollback on the mock_uow
+    async def aexit_side_effect(exc_type, exc_val, exc_tb):
+        if exc_type:
+            await uow.rollback()
+        else:
+            await uow.commit()
+
+    uow.__aexit__ = AsyncMock(side_effect=aexit_side_effect)
+
     return uow
 
 
@@ -41,6 +55,7 @@ async def test_update_photo(mock_uow):
 
     assert updated.labels == {"tag": "true"}
     mock_uow.photos.save.assert_called_once()
+    mock_uow.commit.assert_called_once() # Should now pass due to __aexit__ calling commit
 
 
 @pytest.mark.asyncio
@@ -87,7 +102,7 @@ async def test_move_photo_inter_cluster(mock_uow):
     await service.move_photo("p1", payload)
 
     assert photo.cluster_id == "c2"
-    assert mock_uow.commit.call_count >= 1
+    mock_uow.commit.assert_called_once() # Should now pass due to __aexit__ calling commit
 
 
 @pytest.mark.asyncio
@@ -101,3 +116,4 @@ async def test_delete_photo(mock_uow):
 
     assert photo.deleted_at is not None
     mock_uow.photos.save.assert_called_once()
+    mock_uow.commit.assert_called_once() # Should now pass due to __aexit__ calling commit

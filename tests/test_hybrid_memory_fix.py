@@ -11,11 +11,11 @@ from app.models.photometa import PhotoMeta
 
 class TestHybridClusterMemoryFix(unittest.IsolatedAsyncioTestCase):
     
-    @patch("app.domain.clusterers.hybrid.GCSStorageService")
+    @patch("app.domain.clusterers.hybrid.get_storage_client")
     @patch("app.domain.clusterers.hybrid.CosPlaceExtractor")
     @patch("app.domain.clusterers.hybrid.Image.open")
     @patch("app.domain.clusterers.hybrid.os.path.exists")
-    async def test_extract_features_resizes_images_early(self, mock_exists, mock_open, MockExtractor, MockStorage):
+    async def test_extract_features_resizes_images_early(self, mock_exists, mock_open, MockExtractor, mock_get_storage):
         # Setup
         mock_exists.return_value = True # Simulate local file exists
         
@@ -42,8 +42,8 @@ class TestHybridClusterMemoryFix(unittest.IsolatedAsyncioTestCase):
         
         # Create dummy photos
         photos = [
-            PhotoMeta(path="/tmp/fake1.jpg", thumbnail_path=None),
-            PhotoMeta(path="/tmp/fake2.jpg", thumbnail_path=None)
+            PhotoMeta(original_name="fake1.jpg", path="/tmp/fake1.jpg", thumbnail_path=None),
+            PhotoMeta(original_name="fake2.jpg", path="/tmp/fake2.jpg", thumbnail_path=None)
         ]
         
         # Run extraction

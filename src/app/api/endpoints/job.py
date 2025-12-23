@@ -3,7 +3,6 @@ from typing import List
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     File,
     Header,
@@ -191,12 +190,11 @@ async def complete_upload(
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def start_cluster(
-    job_id: str, payload: JobClusterRequest, background_tasks: BackgroundTasks, uow: UnitOfWork = Depends(get_uow)
+    job_id: str, payload: JobClusterRequest, uow: UnitOfWork = Depends(get_uow)
 ):
     service = JobService(uow)
-    job, data = await service.start_cluster(
+    job, data = await service.start_cluster_server(
         job_id=job_id,
-        background_tasks=background_tasks,
         min_samples=payload.min_samples,
         max_dist_m=payload.max_dist_m,
         max_alt_diff_m=payload.max_alt_diff_m,
@@ -210,12 +208,11 @@ async def start_cluster(
 
 @router.post("/jobs/{job_id}/export", response_model=ExportStatusResponse, status_code=status.HTTP_202_ACCEPTED)
 async def start_export(
-    job_id: str, payload: JobExportRequest, background_tasks: BackgroundTasks, uow: UnitOfWork = Depends(get_uow)
+    job_id: str, payload: JobExportRequest, uow: UnitOfWork = Depends(get_uow)
 ):
     service = JobService(uow)
     export_job = await service.start_export(
         job_id=job_id,
-        background_tasks=background_tasks,
         cover_title=payload.cover_title,
         cover_company_name=payload.cover_company_name,
         labels=payload.labels,

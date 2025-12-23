@@ -32,7 +32,8 @@ class AuthService:
 
         async with self.uow:
             await self.uow.users.create(new_user)
-            await self.uow.refresh(new_user)
+            await self.uow.users.create(new_user)
+            # await self.uow.refresh(new_user)  # Removed to fix InvalidRequestError on pending instance
 
         logger.info(f"User '{new_user.username}' registered successfully with ID: {new_user.user_id}")
         return new_user

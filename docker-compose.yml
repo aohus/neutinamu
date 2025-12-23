@@ -2,7 +2,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:14-alpine
-    container_name: report-postgres
+    container_name: report-postgres-dev
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -24,8 +24,8 @@ services:
   api:
     build:
       context: .
-      dockerfile: ./docker/Dockerfile
-    container_name: report-backend
+      dockerfile: ./src/docker/Dockerfile.dev
+    container_name: report-backend-dev
     restart: unless-stopped
     environment:
       ENVIRONMENT: development
@@ -35,9 +35,14 @@ services:
       ALGORITHM: ${ALGORITHM}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
       FRONTEND_URL: ${FRONTEND_URL}
-      STORAGE_TYPE: ${STORAGE_TYPE:-local}
+      STORAGE_TYPE: gcs
+      MEDIA_ROOT: /app/media
+      MEDIA_URL: media
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
       GOOGLE_APPLICATION_CREDENTIALS: /cred_gcs.json
+      CALLBACK_BASE_URL: http://host.docker.internal:8000/api
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -46,7 +51,7 @@ services:
     volumes:
       - ./src:/app
       - ./logs:/app/logs
-      - ./config/gcp/.cred_gcs.json:/cred_gcs.json:ro
+      - ./media:/app/media
     networks:
       - report-network
     command: >+

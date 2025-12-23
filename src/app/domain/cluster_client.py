@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, List
 
@@ -60,24 +61,36 @@ async def run_deep_cluster_for_job(
             await session.commit()
             return
 
-        # Resolve paths based on storage type
-        storage = get_storage_client()
-        photo_paths = []
+        # Determine bucket path (prefer thumbnail, fallback to original)
+        bucket_path = None
+        # Try to find a valid thumbnail path first
         for p in photos:
-            if isinstance(storage, LocalStorageService):
-                # Local: Absolute file path
-                full_path = storage.media_root / p.storage_path
-                photo_paths.append(str(full_path))
-            else:
-                # Remote (GCS/S3): Public or Signed URL
-                photo_paths.append(storage.get_url(p.storage_path))
+            if p.thumbnail_path:
+                bucket_path = os.path.dirname(p.thumbnail_path)
+                break
+        
+        # Fallback to storage_path
+        if not bucket_path:
+            for p in photos:
+                if p.storage_path:
+                    bucket_path = os.path.dirname(p.storage_path)
+                    break
+        
+        if not bucket_path:
+            logger.warning(f"[DeepClusterRunner] {job} could not determine bucket path")
+            job.status = JobStatus.FAILED
+            cluster_job.error_message = "Could not determine bucket path"
+            cluster_job.finished_at = func.now()
+            await session.commit()
+            return
 
-        logger.info(f"get {len(photo_paths)} photos")
+        logger.info(f"Target bucket path: {bucket_path}, count: {len(photos)}")
 
         try:
             # 2. 클러스터 서버 호출
             return await call_cluster_service(
-                photo_paths=photo_paths,
+                bucket_path=bucket_path,
+                photo_cnt=len(photos),
                 request_id=cluster_job.id,
                 min_samples=min_samples,
                 max_dist_m=max_dist_m,
@@ -103,7 +116,8 @@ async def _get_photos_for_job(session: AsyncSession, job_id: str) -> List[Photo]
 
 
 async def call_cluster_service(
-    photo_paths: list[str],
+    bucket_path: str,
+    photo_cnt: int,
     request_id: str,
     min_samples: int = 3,
     max_dist_m: float = 10.0,
@@ -120,15 +134,13 @@ async def call_cluster_service(
     webhook_url = f"{configs.CALLBACK_BASE_URL}/cluster/callback"
 
     payload = {
-        "photo_paths": photo_paths,
+        "bucket_path": bucket_path,
+        "photo_cnt": photo_cnt,
         "webhook_url": webhook_url,
         "request_id": request_id,
         "min_samples": min_samples,
-        "max_dist_m": max_dist_m,
-        "max_alt_diff_m": max_alt_diff_m,
         "similarity_threshold": similarity_threshold,
         "use_cache": use_cache,
-        "remove_people": remove_people,
     }
     async with httpx.AsyncClient(
         base_url=str(configs.CLUSTER_SERVICE_URL),

@@ -27,6 +27,8 @@ class Config(BaseSettings):
 
     # Storage
     STORAGE_TYPE: str = "gcs"  # Options: 'gcs', 'local'
+    MEDIA_ROOT: str = "media"
+    MEDIA_URL: str = "media"
     GCS_BUCKET_NAME: Optional[str] = None
     PDF_BASE_TEMPLATE_PATH: Optional[str] = None
 
@@ -39,6 +41,10 @@ class Config(BaseSettings):
     MIN_SAMPLES: int = 3
     MAX_LOCATION_DIST_M: float = 10.0
     MAX_ALT_DIFF_M: float = 20.0
+
+    # Celery
+    CELERY_BROKER_URL: str = "redis://redis:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://redis:6379/0"
 
     # Output settings
     THUMB_SIZE: tuple[int, int] = (256, 256)

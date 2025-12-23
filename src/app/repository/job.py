@@ -1,13 +1,14 @@
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Optional
+
+from sqlalchemy import desc, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, with_loader_criteria
-from sqlalchemy import update, desc
 
-from app.models.job import Job, JobStatus, ExportJob, ExportStatus
-from app.models.photo import Photo
 from app.models.cluster import Cluster
+from app.models.job import ExportJob, ExportStatus, Job, JobStatus
+from app.models.photo import Photo
 
 
 class JobRepository:
@@ -45,8 +46,8 @@ class JobRepository:
         return result.scalars().first()
         
     async def get_by_id_with_user(self, job_id: str) -> Optional[Job]:
-         result = await self.db.execute(select(Job).where(Job.id == job_id).options(selectinload(Job.user)))
-         return result.scalars().first()
+        result = await self.db.execute(select(Job).where(Job.id == job_id).options(selectinload(Job.user)))
+        return result.scalars().first()
 
     async def get_by_id_with_export_job(self, job_id: str) -> Optional[Job]:
         result = await self.db.execute(select(Job).where(Job.id == job_id).options(selectinload(Job.export_job)))

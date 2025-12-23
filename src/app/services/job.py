@@ -14,7 +14,7 @@ from PIL import ImageFile
 from app.common.uow import UnitOfWork
 from app.core.config import configs
 from app.domain.cluster_client import run_deep_cluster_for_job
-from app.domain.generate_pdf import generate_pdf_for_session as original_generate_pdf_for_session
+from app.domain.pdf_client import request_pdf_generation
 from app.domain.metadata_extractor import MetadataExtractor
 from app.domain.storage.factory import get_storage_client
 from app.models.job import ExportJob, ExportStatus, Job, JobStatus
@@ -27,7 +27,7 @@ from app.schemas.photo import (
 )
 from app.utils.fileIO import AsyncBytesIO
 from app.utils.image import generate_thumbnail
-from app.celery_app import run_clustering_pipeline_task_celery, generate_pdf_for_session_celery
+
 
 logger = logging.getLogger(__name__)
 # 부분 다운로드된 파일(Truncated Image) 처리 허용
@@ -372,7 +372,6 @@ class JobService:
     async def start_cluster_server(
         self,
         job_id: str,
-        background_tasks: BackgroundTasks,
         min_samples: int = 3,
         max_dist_m: float = 10.0,
         max_alt_diff_m: float = 20.0,
@@ -421,7 +420,8 @@ class JobService:
         async with self.uow:
             export_job = await self.uow.jobs.create_export_job(export_job)
         
-        generate_pdf_for_session_celery.delay(export_job.id)
+        # generate_pdf_for_session_celery.delay(export_job.id)
+        await request_pdf_generation(export_job.id)
         return export_job
 
     async def get_export_job(self, job_id):

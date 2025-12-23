@@ -74,11 +74,10 @@ async def test_start_cluster(mock_uow):
     job = Job(id="j1", status=JobStatus.CREATED)
     mock_uow.jobs.get_by_id = AsyncMock(return_value=job)
 
-    bg_tasks = MagicMock(spec=BackgroundTasks)
-
-    with patch("app.services.job.get_storage_client"):
-        job, data = await service.start_cluster(job_id="j1", background_tasks=bg_tasks)
+    # Mock Celery task
+    with patch("app.services.job.run_clustering_pipeline_task_celery.delay") as mock_delay:
+        job, data = await service.start_cluster(job_id="j1")
 
         assert job.status == JobStatus.PENDING
         mock_uow.commit.assert_called_once()
-        bg_tasks.add_task.assert_called_once()
+        mock_delay.assert_called_once()
