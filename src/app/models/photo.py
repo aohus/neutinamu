@@ -36,6 +36,7 @@ class Photo(Base):
     
     job = relationship("Job", back_populates="photos")
     cluster = relationship("Cluster", back_populates="photos")
+    detail = relationship("PhotoDetail", back_populates="photo", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Photo(id={self.id}, filename={self.original_filename})>"

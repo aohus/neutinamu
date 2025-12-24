@@ -40,6 +40,8 @@ from app.schemas.photo import (
     PhotoUploadRequest,
 )
 from app.services.job import JobService
+from app.services.exporting import ExportService
+from app.services.clustering import ClusteringService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -192,8 +194,8 @@ async def complete_upload(
 async def start_cluster(
     job_id: str, payload: JobClusterRequest, uow: UnitOfWork = Depends(get_uow)
 ):
-    service = JobService(uow)
-    job, data = await service.start_cluster_server(
+    service = ClusteringService(uow)
+    job, data = await service.start_cluster(
         job_id=job_id,
         min_samples=payload.min_samples,
         max_dist_m=payload.max_dist_m,
@@ -210,7 +212,7 @@ async def start_cluster(
 async def start_export(
     job_id: str, payload: JobExportRequest, uow: UnitOfWork = Depends(get_uow)
 ):
-    service = JobService(uow)
+    service = ExportService(uow)
     export_job = await service.start_export(
         job_id=job_id,
         cover_title=payload.cover_title,
@@ -222,18 +224,18 @@ async def start_export(
 
 @router.get("/jobs/{job_id}/export/status", response_model=ExportStatusResponse)
 async def get_export_status(job_id: str, uow: UnitOfWork = Depends(get_uow)):
-    service = JobService(uow)
-    status, pdf_url, err = await service.get_export_job(job_id=job_id)
+    service = ExportService(uow)
+    export_job = await service.get_export_job(job_id=job_id)
     return ExportStatusResponse(
-        status=status,
-        pdf_url=pdf_url,
-        error_message=err,
+        status=export_job.status,
+        pdf_url=export_job.pdf_path,
+        error_message=export_job.error_message,
     )
 
 
 @router.get("/jobs/{job_id}/export/download")
 async def download_export_pdf(job_id: str, uow: UnitOfWork = Depends(get_uow)):
-    service = JobService(uow)
+    service = ExportService(uow)
     pdf_path, name = await service.download_export_pdf(job_id=job_id)
 
     return FileResponse(

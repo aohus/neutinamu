@@ -7,7 +7,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, with_loader_criteria
 
 from app.models.cluster import Cluster
-from app.models.job import ExportJob, ExportStatus, Job, JobStatus
+from app.models.job import ExportJob, ExportStatus, Job, JobStatus, ClusterJob
 from app.models.photo import Photo
 
 
@@ -120,3 +120,9 @@ class JobRepository:
         await self.db.flush()
         await self.db.refresh(export_job)
         return export_job
+
+    async def create_cluster_job(self, cluster_job: ClusterJob) -> ClusterJob:
+        self.db.add(cluster_job)
+        await self.db.flush()
+        await self.db.refresh(cluster_job)
+        return cluster_job
