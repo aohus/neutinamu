@@ -3,11 +3,10 @@ from typing import Optional
 
 from app.common.uow import UnitOfWork
 from app.common.core_clients import call_pdf_service
-from app.models.job import ExportJob, Job
+from app.models.job import ExportJob
 from app.schemas.enum import ExportStatus
-from app.models.photo import Photo
-from app.models.user import User
 from fastapi import HTTPException
+from sqlalchemy import func
 
 
 logger = logging.getLogger(__name__)
@@ -28,7 +27,7 @@ class ExportService:
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        export_job = await self.get_export_job(job_id)
+        export_job = await self.uow.jobs.get_latest_export_job(job_id)
         if export_job and export_job.status in {
             ExportStatus.PENDING,
             ExportStatus.PROCESSING,
@@ -53,6 +52,7 @@ class ExportService:
         
         try:
             response = await self.request_pdf_generation(
+                user_id=job.user_id,
                 job_id=job_id,
                 export_job_id=export_job.id,
                 cover_title=cover_title,
@@ -78,6 +78,7 @@ class ExportService:
 
     async def request_pdf_generation(
         self, 
+        user_id: str, 
         job_id: str, 
         export_job_id: str,
         cover_title: str, 
@@ -87,17 +88,19 @@ class ExportService:
     ):
         pdf_clusters = []
         for cluster in clusters:
-            if cluster.title == "reserved":
+            if cluster.name == "reserve":
+                continue
+            if not cluster.photos:
                 continue
 
             pdf_cluster = {
                 "id": cluster.id,
-                "title": cluster.title,
+                "title": cluster.name,
                 "photos": [
                     {
                         "id": photo.id,
-                        "url": photo.thumbnail_path if photo.thumbnail_path else photo.storage_path,
-                        "timestamp": photo.timestamp,
+                        "path": photo.thumbnail_path if photo.thumbnail_path else photo.storage_path,
+                        "timestamp": photo.meta_timestamp.isoformat() if photo.meta_timestamp else "",
                         "labels": photo.labels,
                     }
                     for photo in cluster.photos
@@ -107,6 +110,7 @@ class ExportService:
 
         return await call_pdf_service(
             request_id=export_job_id,
+            bucket_path=f"{user_id}/{job_id}/export", 
             cover_title=cover_title,
             cover_company_name=cover_company_name,
             clusters=pdf_clusters,

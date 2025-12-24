@@ -73,7 +73,7 @@ async def call_pdf_service(
         "cover_title": cover_title,
         "cover_company_name": cover_company_name,
         "clusters": clusters,
-        "labels": labels,
+        "label_config": labels,
         "webhook_url": webhook_url,
     }
 
@@ -84,5 +84,5 @@ async def call_pdf_service(
         resp = await client.post("/api/pdf", json=payload)
         resp.raise_for_status()
         data = resp.json()
-        logger.info(f"PDF generation requested for {export_job_id}")
+        logger.info(f"PDF generation requested for {request_id}")
         return data

@@ -8,19 +8,12 @@ from fastapi import (
     Header,
     UploadFile,
     status,
+    HTTPException,
 )
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, with_loader_criteria
 
 from app.api.deps import get_uow
 from app.api.endpoints.auth import get_current_user
 from app.common.uow import UnitOfWork
-from app.db.database import get_db
-from app.domain.storage.factory import get_storage_client
-from app.models.cluster import Cluster
-from app.models.job import ExportJob, Job, JobStatus
-from app.models.photo import Photo
 from app.models.user import User
 from app.schemas.enum import ExportStatus, JobStatus
 from app.schemas.job import (
@@ -36,7 +29,6 @@ from app.schemas.job import (
 )
 from app.schemas.photo import (
     BatchPresignedUrlResponse,
-    PhotoCompleteRequest,
     PhotoUploadRequest,
 )
 from app.services.job import JobService
@@ -229,12 +221,19 @@ async def start_export(
 @router.get("/jobs/{job_id}/export/status", response_model=ExportStatusResponse)
 async def get_export_status(job_id: str, uow: UnitOfWork = Depends(get_uow)):
     service = ExportService(uow)
-    export_job = await service.get_export_job(job_id=job_id)
-    return ExportStatusResponse(
-        status=export_job.status,
-        pdf_url=export_job.pdf_path,
-        error_message=export_job.error_message,
-    )
+    try:
+        export_job = await service.get_export_job(job_id)
+        return ExportStatusResponse(
+            status=export_job.status,
+            pdf_url=export_job.pdf_path,
+            error_message=export_job.error_message,
+        )
+    except HTTPException:
+        return ExportStatusResponse(
+            status=ExportStatus.PENDING,
+            pdf_url=None,
+            error_message=None
+        )
 
 
 @router.get("/jobs/{job_id}/export/download")
