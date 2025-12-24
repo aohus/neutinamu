@@ -3,9 +3,11 @@ from typing import Optional
 
 from app.common.uow import UnitOfWork
 from app.common.core_clients import call_pdf_service
-from app.models.job import ExportJob, ExportStatus, Job, JobStatus
+from app.models.job import ExportJob, Job
+from app.schemas.enum import ExportStatus
 from app.models.photo import Photo
 from app.models.user import User
+from fastapi import HTTPException
 
 
 logger = logging.getLogger(__name__)
@@ -50,7 +52,7 @@ class ExportService:
             cover_company_name = job.company_name
         
         try:
-            return await self.request_pdf_generation(
+            response = await self.request_pdf_generation(
                 job_id=job_id,
                 export_job_id=export_job.id,
                 cover_title=cover_title,
@@ -58,12 +60,21 @@ class ExportService:
                 clusters=job.clusters,
                 labels=labels,
             )
+            async with self.uow:
+                if response["status"] == "processing":
+                    export_job.status = ExportStatus.PROCESSING
+                elif response["status"] == "failed":
+                    export_job.status = ExportStatus.FAILED
+                    export_job.error_message = response["message"]
+                    export_job.finished_at = func.now()
+            return export_job
         except Exception as e:
             logger.exception(f"job_id={job_id} export_job_id={export_job.id} export failed: {e}")
             async with self.uow:
                 export_job.status = ExportStatus.FAILED
                 export_job.error_message = str(e)
                 export_job.finished_at = func.now()
+            return export_job
 
     async def request_pdf_generation(
         self, 

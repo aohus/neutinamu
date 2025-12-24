@@ -219,7 +219,11 @@ async def start_export(
         cover_company_name=payload.cover_company_name,
         labels=payload.labels,
     )
-    return ExportStatusResponse(status=export_job.status)
+    return ExportStatusResponse(
+        status=export_job.status,
+        pdf_url=export_job.pdf_path,
+        error_message=export_job.error_message,
+    )
 
 
 @router.get("/jobs/{job_id}/export/status", response_model=ExportStatusResponse)

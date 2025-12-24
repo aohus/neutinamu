@@ -100,7 +100,7 @@ async def create_clusters(db: AsyncSession, cluster_job: ClusterJob, result: dic
             
             matched_photo = None
             for photo in photos:
-                if p_path and (p_path.endswith(photo.thumbnail_path) or p_path.endswith(photo.storage_path)):
+                if p_path and (p_path.endswith(photo.thumbnail_path) if photo.thumbnail_path else p_path.endswith(photo.storage_path)):
                     matched_photo = photo
                     break
             
@@ -157,3 +157,42 @@ async def _remove_previous_clusters(db: AsyncSession, job_id: str):
 
     await db.execute(delete(Cluster).where(Cluster.id.in_(select(cluster_ids_subq.c.id))))
     await db.flush()
+
+
+@router.post("/pdf/callback")
+async def handle_pdf_result(payload: dict = Body(...), db: AsyncSession = Depends(get_db)):
+    task_id = payload.get("task_id")
+    status = payload.get("status")
+    request_id = payload.get("request_id")  # This is our ClusterJob.id
+    
+    logger.info(f"Received callback for task {task_id} (req={request_id}), status: {status}")
+    
+    result = await db.execute(select(ClusterJob).where(ClusterJob.id == request_id))
+    cluster_job = result.scalar_one_or_none()
+    
+    if not cluster_job:
+        logger.error(f"ClusterJob not found for request_id: {request_id}")
+        return {"status": "error", "message": "ClusterJob not found"}
+
+    job_id = cluster_job.job_id
+    
+    if status == "completed":
+        cluster_result = payload.get("result")
+        # logger.info(f"Clustering success! Result keys: {cluster_result.keys()}")
+        try:
+            await create_clusters(db, cluster_job, cluster_result)
+            logger.info(f"Job {job_id} updated with clustering results.")
+        except Exception as e:
+            logger.exception(f"Error applying clustering results for job {job_id}: {e}")
+            cluster_job.error_message = f"Error applying results: {str(e)}"
+            await _mark_job_failed(db, job_id)
+            await db.commit()
+
+    elif status == "failed":
+        error = payload.get("error")
+        logger.error(f"Task {task_id} failed: {error}")
+        cluster_job.error_message = str(error)
+        await _mark_job_failed(db, job_id)
+        await db.commit()
+    
+    return {"status": "ok"}

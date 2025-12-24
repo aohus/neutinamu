@@ -1,10 +1,14 @@
 import logging
-from typing import Optional
+import os
 
 from app.common.uow import UnitOfWork
 from app.common.core_clients import call_cluster_service
 from app.models.photo import Photo
 from app.models.user import User
+from app.models.job import ClusterJob
+from app.schemas.enum import JobStatus
+from fastapi import HTTPException
+from sqlalchemy import func
 
 
 logger = logging.getLogger(__name__)
@@ -34,7 +38,7 @@ class ClusteringService:
             cluster_job_obj = await self.uow.jobs.create_cluster_job(cluster_job)
 
         try:
-            return await self.request_cluster_job(
+            response = await self.request_cluster_job(
                 job_id, 
                 cluster_job_obj.id,
                 min_samples, 
@@ -42,6 +46,7 @@ class ClusteringService:
                 max_alt_diff_m, 
                 similarity_threshold
             )
+            return job, response
         except Exception as e:
             logger.exception(f"{job} failed: {e}")
             async with self.uow:
@@ -60,7 +65,7 @@ class ClusteringService:
     ):
         logger.info(f"Request cluster job to image_cluster_server {job_id}")
 
-        photos = await self.uow.photos.get_photos_for_job(job_id)
+        photos = await self.uow.photos.get_by_job_id(job_id)
         if not photos:
             logger.warning(f"{job} has no photos")
             raise HTTPException(status_code=404, detail="No photos found")
