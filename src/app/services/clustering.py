@@ -67,7 +67,7 @@ class ClusteringService:
 
         photos = await self.uow.photos.get_by_job_id(job_id)
         if not photos:
-            logger.warning(f"{job} has no photos")
+            logger.warning(f"{job_id} has no photos")
             raise HTTPException(status_code=404, detail="No photos found")
 
         bucket_path = None

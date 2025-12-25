@@ -122,6 +122,12 @@ class JobRepository:
         await self.db.refresh(export_job)
         return export_job
 
+    async def create_cluster_job(self, cluster_job: ClusterJob) -> ClusterJob:
+        self.db.add(cluster_job)
+        await self.db.flush()
+        await self.db.refresh(cluster_job)
+        return cluster_job
+
     async def get_export_job_by_id(self, export_job_id: str) -> Optional[ExportJob]:
         result = await self.db.execute(select(ExportJob).where(ExportJob.id == export_job_id))
         return result.scalars().first()
