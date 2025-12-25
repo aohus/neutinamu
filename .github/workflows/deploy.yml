@@ -39,7 +39,7 @@ jobs:
           source: "docker-compose.prod.yml"
           target: "snap-to-report"
 
-      # 6. 배포 실행 (SSH)
+      # 5. 배포 실행 (SSH)
       - name: Deploy to GCE
         uses: appleboy/ssh-action@v1.0.0
         with:

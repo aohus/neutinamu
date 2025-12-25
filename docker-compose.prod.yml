@@ -64,7 +64,7 @@ services:
     ports:
       - "80:80"
     depends_on:
-      backend:
+      api:
         condition: service_healthy
     networks:
       - app-network
