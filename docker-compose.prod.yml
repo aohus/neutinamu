@@ -19,11 +19,9 @@ services:
       - app-network
 
   # Backend
-  backend:
-    build:
-      context: ./backend # 서버의 backend 폴더 참조
-      dockerfile: src/docker/Dockerfile
-    container_name: prod-backend
+  api:
+    image: asia-northeast3-docker.pkg.dev/snap-2-report/snap-2-report-repo/s2p-api:latest
+    container_name: prod-s2p-api
     restart: always
     environment:
       ENVIRONMENT: production
@@ -35,8 +33,8 @@ services:
       STORAGE_TYPE: ${STORAGE_TYPE}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
       GOOGLE_APPLICATION_CREDENTIALS: /app/gcs-key.json
-      CLUSTER_SERVICE_URL: ${CLUSTER_SERVICE_URL}
-      FRONTEND_ORIGIN: ${GCP_VM_HOST}
+      WORKER_BASE_URL: ${WORKER_BASE_URL}
+      CALLBACK_BASE_URL: ${CALLBACK_BASE_URL}
     volumes:
       - ./gcs-key.json:/app/gcs-key.json:ro
     depends_on:
@@ -60,10 +58,8 @@ services:
 
   # Frontend (Web Server + Reverse Proxy)
   web:
-    build:
-      context: ./frontend # 서버의 frontend 폴더 참조
-      dockerfile: Dockerfile
-    container_name: prod-web
+    image: asia-northeast3-docker.pkg.dev/snap-2-report/snap-2-report-repo/s2p-web:latest
+    container_name: prod-s2p-web
     restart: always
     ports:
       - "80:80"

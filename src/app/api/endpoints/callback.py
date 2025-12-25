@@ -6,7 +6,7 @@ from app.api.deps import get_uow
 from app.common.uow import UnitOfWork
 from app.db.database import get_db
 from app.models.cluster import Cluster
-from app.models.job import ClusterJob, Job, ExportJob
+from app.models.job import ClusterJob
 from app.schemas.enum import JobStatus, ExportStatus
 from app.models.photo import Photo
 from app.models.photo_detail import PhotoDetail

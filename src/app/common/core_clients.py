@@ -48,10 +48,10 @@ async def call_cluster_service(
         "use_cache": use_cache,
     }
     async with httpx.AsyncClient(
-        base_url=str(configs.CLUSTER_SERVICE_URL),
+        base_url=str(configs.WORKER_BASE_URL),
         timeout=10.0,
     ) as client:
-        resp = await client.post("/api/cluster", json=payload)
+        resp = await client.post("/cluster", json=payload)
         resp.raise_for_status()
         data = resp.json()
         logger.info(f"Task submitted successfully: {data.get('task_id')}, request_id: {request_id}")
@@ -78,10 +78,10 @@ async def call_pdf_service(
     }
 
     async with httpx.AsyncClient(
-        base_url=str(configs.CLUSTER_SERVICE_URL), 
+        base_url=str(configs.WORKER_BASE_URL), 
         timeout=10.0,
     ) as client:
-        resp = await client.post("/api/pdf", json=payload)
+        resp = await client.post("/pdf", json=payload)
         resp.raise_for_status()
         data = resp.json()
         logger.info(f"PDF generation requested for {request_id}")
