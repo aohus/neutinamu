@@ -39,21 +39,21 @@ async def handle_clustering_result(payload: dict = Body(...), uow: UnitOfWork = 
         if status == "completed":
             cluster_result = payload.get("result")
             try:
-                # create_clusters still uses db, will be refactored later
-                await create_clusters(uow.db, cluster_job, cluster_result)
+                # create_clusters now uses uow
+                await create_clusters(uow, cluster_job, cluster_result)
                 logger.info(f"Job {job_id} updated with clustering results.")
             except Exception as e:
                 logger.exception(f"Error applying clustering results for job {job_id}: {e}")
                 cluster_job.error_message = f"Error applying results: {str(e)}"
-                # _mark_job_failed still uses db, will be refactored later
-                await _mark_job_failed(uow.db, job_id)
+                # _mark_job_failed now uses uow
+                await _mark_job_failed(uow, job_id)
 
         elif status == "failed":
             error = payload.get("error")
             logger.error(f"Task {task_id} failed: {error}")
             cluster_job.error_message = str(error)
-            # _mark_job_failed still uses db, will be refactored later
-            await _mark_job_failed(uow.db, job_id)
+            # _mark_job_failed now uses uow
+            await _mark_job_failed(uow, job_id)
         
         # All changes within this async with uow block will be committed
     
@@ -72,7 +72,7 @@ async def create_clusters(uow: UnitOfWork, cluster_job: ClusterJob, result: dict
 
     photos = await uow.photos.get_by_job_id(job_id) # Use uow.photos to get Photos
     
-    await _remove_previous_clusters(uow, job_id) # Pass uow instead of db
+    await _remove_previous_clusters(uow, job_id) # Pass uow
 
     reserve_cluster = Cluster(
         job_id=job_id,
@@ -123,7 +123,9 @@ async def create_clusters(uow: UnitOfWork, cluster_job: ClusterJob, result: dict
                     matched_photo.meta_lat = p.get("lat")
                 if p.get("lon"):
                     matched_photo.meta_lon = p.get("lon")
-                await uow.db.execute(delete(PhotoDetail).where(PhotoDetail.photo_id == matched_photo.id)) # Use uow.db
+                
+                # Delete existing PhotoDetail
+                await uow.db.execute(delete(PhotoDetail).where(PhotoDetail.photo_id == matched_photo.id)) 
                 
                 new_detail = PhotoDetail(
                     photo_id=matched_photo.id,
@@ -135,7 +137,7 @@ async def create_clusters(uow: UnitOfWork, cluster_job: ClusterJob, result: dict
                     orientation=p.get("orientation"),
                     gps_img_direction=p.get("gps_img_direction")
                 )
-                uow.db.add(new_detail) # Use uow.db.add
+                uow.db.add(new_detail) 
             else:
                 logger.warning(f"Photo path not matched: {p_path}")
 
@@ -146,8 +148,6 @@ async def create_clusters(uow: UnitOfWork, cluster_job: ClusterJob, result: dict
     # and changes will be committed by the outer UOW block.
     if job: # Check if job is not None
         job.status = JobStatus.COMPLETED
-    
-    # Removed await db.commit() as it's handled by the UOW context manager
 
 
 async def _mark_job_failed(uow: UnitOfWork, job_id: str):
