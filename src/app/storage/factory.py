@@ -6,7 +6,6 @@ from app.core.config import configs
 from .base import StorageService
 from .gcs import GCSStorageService
 from .local import LocalStorageService
-from .s3 import S3StorageService
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +16,6 @@ class StorageFactory:
         logger.info(f"Creating storage service of type: {service_type}")
         if service_type == "local":
             return LocalStorageService()
-        elif service_type == "s3":
-            return S3StorageService()
         elif service_type == "gcs":
             return GCSStorageService()
         else:
