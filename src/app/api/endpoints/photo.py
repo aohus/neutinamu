@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_uow
 from app.common.uow import UnitOfWork
-from app.domain.storage.factory import get_storage_client  # Import this
+from app.storage.factory import get_storage_client  # Import this
 from app.schemas.photo import PhotoMove, PhotoResponse, PhotoUpdate
 from app.services.photo import PhotoService
 

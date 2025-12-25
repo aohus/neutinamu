@@ -13,8 +13,8 @@ from PIL import ImageFile
 
 from app.common.uow import UnitOfWork
 from app.core.config import configs
-from app.domain.metadata_extractor import MetadataExtractor
-from app.domain.storage.factory import get_storage_client
+from app.utils.metadata_extractor import MetadataExtractor
+from app.storage.factory import get_storage_client
 from app.models.job import ExportJob, ExportStatus, Job, JobStatus
 from app.models.photo import Photo
 from app.models.user import User

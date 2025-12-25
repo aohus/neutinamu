@@ -12,8 +12,8 @@ from sqlalchemy.sql import func
 
 from app.core.config import configs
 from app.db.database import AsyncSessionLocal
-from app.domain.storage.factory import get_storage_client
-from app.domain.storage.local import LocalStorageService
+from app.storage.factory import get_storage_client
+from app.storage.local import LocalStorageService
 from app.models.job import ClusterJob, Job, JobStatus
 from app.models.photo import Photo
 
